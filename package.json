@@ -1,9 +1,9 @@
 {
-  "name": "opencode-flightdeck",
+  "name": "opencode-opendeck",
   "version": "0.1.0",
   "type": "module",
   "description": "OpenCode TUI plugin — live session dashboard in the sidebar (context, cost, agents, activity, permissions)",
-  "author": "opencode-flightdeck contributors",
+  "author": "opencode-opendeck contributors",
   "license": "MIT",
   "keywords": [
     "opencode",
@@ -11,7 +11,7 @@
     "tui",
     "sidebar",
     "dashboard",
-    "flightdeck"
+    "opendeck"
   ],
   "engines": {
     "opencode": ">=2.0.0"

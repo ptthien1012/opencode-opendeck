@@ -15,31 +15,31 @@ function CrashLine(props: { err: unknown }) {
   }
   return (
     <text wrapMode="none" fg={context.theme.text.feedback.error.base}>
-      flightdeck: {message()}
+      opendeck: {message()}
     </text>
   )
 }
 
 export default Plugin.define({
-  id: "flightdeck",
+  id: "opendeck",
   setup(context) {
     const { deck, dispose } = createDeck(context)
 
-    // Open: /flightdeck slash command + command palette entry, reachable from
+    // Open: /opendeck slash command + command palette entry, reachable from
     // anywhere (mode "global"). No default keybind: the host already binds
     // ctrl+g (session.first) and a lower-priority bind never dispatches, so
-    // auto-binding is disabled — bind your own via the "flightdeck.open"
+    // auto-binding is disabled — bind your own via the "opendeck.open"
     // command id in keybinds config.
     context.keymap.layer(() => ({
       mode: "global",
       commands: [
         {
-          id: "flightdeck.open",
-          title: "Open Flightdeck",
-          description: "Open the Flightdeck dashboard full screen",
-          group: "Flightdeck",
+          id: "opendeck.open",
+          title: "Open Opendeck",
+          description: "Open the Opendeck dashboard full screen",
+          group: "Opendeck",
           palette: true,
-          slash: { name: "flightdeck" },
+          slash: { name: "opendeck" },
           bind: false,
           enabled: () => !deck.isFullRoute(),
           run: () => deck.openFullview(),
@@ -47,26 +47,26 @@ export default Plugin.define({
       ],
     }))
 
-    // Close/toggle keys: scoped to the "flightdeck" keymap mode, which the
+    // Close/toggle keys: scoped to the "opendeck" keymap mode, which the
     // deck pushes only while the full view is the current route and pops on
     // close — so they can't fire over the prompt or a dialog on top.
     context.keymap.layer(() => ({
-      mode: "flightdeck",
+      mode: "opendeck",
       commands: [
         {
-          id: "flightdeck.close",
-          title: "Close Flightdeck",
-          description: "Return from the Flightdeck full view to the session",
-          group: "Flightdeck",
+          id: "opendeck.close",
+          title: "Close Opendeck",
+          description: "Return from the Opendeck full view to the session",
+          group: "Opendeck",
           bind: "escape",
           enabled: () => deck.isFullRoute(),
           run: () => deck.closeFullview(),
         },
         {
-          id: "flightdeck.toggle",
-          title: "Flightdeck: toggle cards/lanes",
+          id: "opendeck.toggle",
+          title: "Opendeck: toggle cards/lanes",
           description: "Switch the agents area between card grid and swimlanes",
-          group: "Flightdeck",
+          group: "Opendeck",
           bind: "t",
           enabled: () => deck.isFullRoute(),
           run: () => deck.setLanes(!(deck.lanesPref() ?? false)),
@@ -81,7 +81,7 @@ export default Plugin.define({
 
     // Full-screen view: a plugin route (the widest surface the v2 API offers).
     const unregister = context.ui.router.register({
-      name: "flightdeck",
+      name: "opendeck",
       render: ({ data }) => (
         <ErrorBoundary fallback={(err: unknown) => <CrashLine err={err} />}>
           <FullView deck={deck} sessionID={typeof data?.sessionID === "string" ? data.sessionID : undefined} />

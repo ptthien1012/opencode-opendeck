@@ -1,4 +1,4 @@
-# opencode-flightdeck
+# opencode-opendeck
 
 Live session dashboard for the OpenCode TUI — a clone of
 [claude-flightdeck](https://github.com/scasella/claude-flightdeck) for
@@ -13,11 +13,11 @@ English | [Tiếng Việt](#tiếng-việt)
 
 ## Full view
 
-Open it with `/flightdeck` (slash command or command palette) or the
-`⤢ open Flightdeck` link in the sidebar. `q` or `esc` returns to the session;
+Open it with `/opendeck` (slash command or command palette) or the
+`⤢ open Opendeck` link in the sidebar. `q` or `esc` returns to the session;
 `t` (or clicking the header) toggles the agents area between the card grid and
 swimlanes. There is no default keybind (`ctrl+g` belongs to the host's
-`session.first`); bind your own via the `flightdeck.open` command id in your
+`session.first`); bind your own via the `opendeck.open` command id in your
 keybinds config. The `esc`/`q`/`t` keys live in a dedicated keymap mode that
 only exists while the full view is the current route, so they never fire over
 the prompt or a dialog on top.
@@ -75,7 +75,7 @@ OpenCode v2 loads TUI plugins from the `plugins` array in the **global**
 
 ```json
 {
-  "plugins": ["/absolute/path/to/opencode-flightdeck"]
+  "plugins": ["/absolute/path/to/opencode-opendeck"]
 }
 ```
 
@@ -124,9 +124,9 @@ OpenCode **v2**. Hai màn hình: sidebar gọn (slot `sidebar.content`) và màn
 hình đầy đủ (plugin route). Chỉ quan sát, không chặn/sửa event, không gọi
 mạng, không ghi file, không lưu state giữa các phiên.
 
-**Mở full view:** gõ `/flightdeck` (hoặc command palette), hoặc click
-`⤢ open Flightdeck` trong sidebar (không gán phím tắt mặc định — tự gán qua
-command id `flightdeck.open`). `q`/`esc` để quay lại session, `t`
+**Mở full view:** gõ `/opendeck` (hoặc command palette), hoặc click
+`⤢ open Opendeck` trong sidebar (không gán phím tắt mặc định — tự gán qua
+command id `opendeck.open`). `q`/`esc` để quay lại session, `t`
 để đổi agents giữa lưới thẻ (cards) và swimlanes.
 
 **Sidebar hiển thị:**

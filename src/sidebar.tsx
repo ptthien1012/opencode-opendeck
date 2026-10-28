@@ -556,7 +556,7 @@ export function Sidebar(props: { deck: Deck; sessionID: string }) {
 
   const shortcut = createMemo(() => {
     try {
-      return context.keymap.shortcuts("flightdeck.open")[0] ?? ""
+      return context.keymap.shortcuts("opendeck.open")[0] ?? ""
     } catch {
       return ""
     }
@@ -579,7 +579,7 @@ export function Sidebar(props: { deck: Deck; sessionID: string }) {
           {props.deck.collapsed() ? "▶" : "▼"}
         </text>
         <text wrapMode="none" fg={theme().text.base}>
-          <b>Flightdeck</b>
+          <b>Opendeck</b>
         </text>
       </box>
       <Show when={!props.deck.collapsed()}>
@@ -595,11 +595,11 @@ export function Sidebar(props: { deck: Deck; sessionID: string }) {
         <PermissionsSection deck={props.deck} sessionID={props.sessionID} w={w} />
         <box flexDirection="row" gap={1} marginTop={1} onMouseDown={() => props.deck.openFullview()}>
           <text wrapMode="none" fg={theme().hue.interactive[200]}>
-            ⤢ open Flightdeck
+            ⤢ open Opendeck
           </text>
           <Show when={w() >= 32}>
             <text wrapMode="none" fg={theme().text.faint}>
-              {truncate(`/flightdeck${shortcut() ? ` · ${shortcut()}` : ""}`, Math.max(0, w() - 17))}
+              {truncate(`/opendeck${shortcut() ? ` · ${shortcut()}` : ""}`, Math.max(0, w() - 17))}
             </text>
           </Show>
         </box>

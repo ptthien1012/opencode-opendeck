@@ -1,4 +1,4 @@
-// Pure metrics and terminal-chart helpers for Flightdeck. No Solid, no host
+// Pure metrics and terminal-chart helpers for Opendeck. No Solid, no host
 // access, no timers: every function takes plain data and returns plain data,
 // so it is unit-tested with `bun test` (test/metrics.test.ts).
 

@@ -24,7 +24,7 @@ export function createDeck(context: Context) {
     // Ephemeral UI prefs: survive hot reloads, gone when the TUI exits.
     // (storage.store would persist to disk — this widget is read-only and stateless by design.)
     // lanes: undefined = auto (cards while they fit, lanes past that).
-    const [ui, setUi] = context.storage.memory("flightdeck", {
+    const [ui, setUi] = context.storage.memory("opendeck", {
       initial: { collapsed: false, lanes: undefined as boolean | undefined, doneOpen: false },
     })
     const [tick, setTick] = createSignal(0)
@@ -32,7 +32,7 @@ export function createDeck(context: Context) {
     const [runs, setRuns] = createSignal<Record<string, Run>>({})
     const [expandedMap, setExpandedMap] = createSignal<Record<string, boolean>>({})
     const [perms, setPerms] = createSignal<PermRecord[]>([])
-    // Full-screen view (plugin route "flightdeck"): open state + the root
+    // Full-screen view (plugin route "opendeck"): open state + the root
     // session it was opened from, so close lands back where the user was.
     const [full, setFull] = createSignal(false)
     const [lastRoot, setLastRoot] = createSignal<string | undefined>(undefined)
@@ -53,7 +53,7 @@ export function createDeck(context: Context) {
     function isFullRoute(): boolean {
       try {
         const route = context.ui.router.current()
-        return route.type === "plugin" && route.name === "flightdeck"
+        return route.type === "plugin" && route.name === "opendeck"
       } catch {
         return false
       }
@@ -203,7 +203,7 @@ export function createDeck(context: Context) {
     let popMode: (() => void) | undefined
     createEffect(() => {
       if (full()) {
-        if (!popMode) popMode = context.keymap.mode.push("flightdeck")
+        if (!popMode) popMode = context.keymap.mode.push("opendeck")
       } else {
         popMode?.()
         popMode = undefined
@@ -237,7 +237,7 @@ export function createDeck(context: Context) {
       } catch {
         return
       }
-      setFull(route.type === "plugin" && route.name === "flightdeck")
+      setFull(route.type === "plugin" && route.name === "opendeck")
       if (route.type === "session") {
         try {
           const root = context.data.session.root(route.sessionID)
@@ -334,7 +334,7 @@ export function createDeck(context: Context) {
           draft.doneOpen = !(ui.doneOpen ?? false)
         })
       },
-      /** Whether the full-screen Flightdeck route is currently shown. */
+      /** Whether the full-screen Opendeck route is currently shown. */
       fullOpen: full,
       isFullRoute,
       /** Session the full view renders: the one it was opened from, else current. */
@@ -349,7 +349,7 @@ export function createDeck(context: Context) {
         try {
           context.ui.router.navigate({
             type: "plugin",
-            name: "flightdeck",
+            name: "opendeck",
             ...(id ? { data: { sessionID: id } } : {}),
           })
         } catch {

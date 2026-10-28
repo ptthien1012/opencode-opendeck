@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/solid */
-// Full-screen Flightdeck view (Part 2), registered as the plugin route
-// "flightdeck" — the widest surface the v2 TUI API offers (a whole page).
+// Full-screen Opendeck view (Part 2), registered as the plugin route
+// "opendeck" — the widest surface the v2 TUI API offers (a whole page).
 // Layout follows claude-flightdeck's terminal look: a bordered main panel
 // (model · ctx gauge · tokens), a permission gate as a filling cell strip, an
 // activity timeline, and agents as a hierarchy: the orchestrator card on
@@ -68,7 +68,7 @@ function TitleRow(props: { deck: Deck; sessionID: string; w: Width }) {
   return (
     <box flexDirection="row" justifyContent="space-between" width="100%" marginBottom={1}>
       <text wrapMode="none" fg={theme().text.base}>
-        <b>Flightdeck</b>
+        <b>Opendeck</b>
         {title() ? `  ${truncate(title(), Math.max(10, props.w() - 44))}` : ""}
       </text>
       <box flexDirection="row" gap={1} flexShrink={0}>
@@ -668,7 +668,7 @@ export function FullView(props: { deck: Deck; sessionID?: string }) {
         if (next > 0 && next !== measured()) setMeasured(next)
       }}
     >
-      <Show when={sid()} keyed fallback={<text wrapMode="none" fg={theme().text.muted}>flightdeck: no session</text>}>
+      <Show when={sid()} keyed fallback={<text wrapMode="none" fg={theme().text.muted}>opendeck: no session</text>}>
         {(id: string) => (
           <>
             <TitleRow deck={props.deck} sessionID={id} w={W} />
