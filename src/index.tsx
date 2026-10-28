@@ -3,6 +3,7 @@ import { Plugin, usePlugin } from "@opencode/plugin/tui"
 import { ErrorBoundary } from "solid-js"
 import { maskSecrets, truncate } from "./format.js"
 import { DiffView } from "./diffview.js"
+import { GitView } from "./gitview.js"
 import { FullView } from "./fullview.js"
 import { Sidebar } from "./sidebar.js"
 import { createDeck } from "./state.js"
@@ -80,6 +81,15 @@ export default Plugin.define({
           bind: "f",
           enabled: () => deck.isFullRoute(),
           run: () => deck.openDiff(),
+        },
+        {
+          id: "opendeck.git",
+          title: "Opendeck: git log",
+          description: "Open the git commit graph of the session's directory",
+          group: "Opendeck",
+          bind: "l",
+          enabled: () => deck.isFullRoute(),
+          run: () => deck.openGit(),
         },
         {
           bind: "q",
@@ -256,6 +266,43 @@ export default Plugin.define({
           enabled: () => deck.diffOpen(),
           run: () => deck.diffRefreshGit(),
         },
+        {
+          bind: "3",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.openGit(),
+        },
+      ],
+    }))
+
+    // Git log page keys: scoped to the "opendeck-git" keymap mode, pushed
+    // only while the git route is current. One key per command object.
+    const gitOn = () => deck.gitOpen()
+    const page = () => deck.gitPage()
+    context.keymap.layer(() => ({
+      mode: "opendeck-git",
+      commands: [
+        {
+          id: "opendeck.git.close",
+          title: "Opendeck: back from git log",
+          description: "Return from the git log to the Opendeck full view",
+          group: "Opendeck",
+          bind: "escape",
+          enabled: gitOn,
+          run: () => deck.closeGit(),
+        },
+        { bind: "q", enabled: gitOn, run: () => deck.closeGit() },
+        { bind: "j", enabled: gitOn, run: () => deck.gitMove(1) },
+        { bind: "down", enabled: gitOn, run: () => deck.gitMove(1) },
+        { bind: "k", enabled: gitOn, run: () => deck.gitMove(-1) },
+        { bind: "up", enabled: gitOn, run: () => deck.gitMove(-1) },
+        { bind: "space", enabled: gitOn, run: () => deck.gitMove(page()) },
+        { bind: "pagedown", enabled: gitOn, run: () => deck.gitMove(page()) },
+        { bind: "b", enabled: gitOn, run: () => deck.gitMove(-page()) },
+        { bind: "pageup", enabled: gitOn, run: () => deck.gitMove(-page()) },
+        { bind: "g", enabled: gitOn, run: () => deck.gitSelect(0) },
+        { bind: "shift+g", enabled: gitOn, run: () => deck.gitSelect(1_000_000) },
+        { bind: "enter", enabled: gitOn, run: () => deck.gitOpenSelected() },
+        { bind: "r", enabled: gitOn, run: () => deck.gitReload() },
       ],
     }))
 
@@ -283,6 +330,16 @@ export default Plugin.define({
       ),
     })
 
+    // Git log page: third plugin route, same crash guard.
+    const unregisterGit = context.ui.router.register({
+      name: "opendeck-git",
+      render: ({ data }) => (
+        <ErrorBoundary fallback={(err: unknown) => <CrashLine err={err} />}>
+          <GitView deck={deck} sessionID={typeof data?.sessionID === "string" ? data.sessionID : undefined} />
+        </ErrorBoundary>
+      ),
+    })
+
     const remove = context.ui.slot({
       append: "sidebar.content",
       render: ({ sessionID }) => (
@@ -295,6 +352,7 @@ export default Plugin.define({
     return () => {
       unregister()
       unregisterDiff()
+      unregisterGit()
       remove()
       dispose()
     }

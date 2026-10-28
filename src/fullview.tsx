@@ -637,7 +637,7 @@ export function FullView(props: { deck: Deck; sessionID?: string }) {
                 </box>
               </box>
             </Show>
-            <KeyHints items={[["t", "cards/lanes"], ["f", "files"], ["q", "back"]]} w={W()} />
+            <KeyHints items={[["t", "cards/lanes"], ["f", "files"], ["l", "git log"], ["q", "back"]]} w={W()} />
           </>
         )}
       </Show>

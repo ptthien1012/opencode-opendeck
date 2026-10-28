@@ -566,7 +566,7 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
           ["j/k", "move"],
           ["enter", "open"],
           ["tab", "patch"],
-          ["1/2", "source"],
+          ["1/2/3", "edits/git/log"],
           ["s", "split"],
           ["esc", "back"],
         ]
