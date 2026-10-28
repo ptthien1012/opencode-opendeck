@@ -18,7 +18,7 @@ import type { BoxRenderable, RGBA } from "@opentui/core"
 import { createEffect, createMemo, createResource, createSignal, For, onMount, Show, untrack } from "solid-js"
 import type { JSX } from "solid-js"
 import { formatTokens, maskSecrets, truncate } from "./format.js"
-import { buildTree, flattenTree, loadWorking, type GitFileDiff, type TreeNode } from "./git.js"
+import { buildTree, flattenTree, loadCommitFiles, loadWorking, type GitFileDiff, type TreeNode } from "./git.js"
 import { diffFromTools, splitPatch, type SplitCell, type SplitRow } from "./metrics.js"
 import { collectToolParts } from "./shared.js"
 import type { Deck } from "./state.js"
@@ -117,19 +117,30 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
       return typeof result === "string" ? { error: result } : { files: result }
     },
   )
-  const gitFiles = createMemo(() => gitRes()?.files)
-  const gitError = createMemo(() => gitRes()?.error)
+  // Source "commit": one commit's files (opened from the git log page).
+  const [commitRes] = createResource(
+    () => ({ cwd: cwd(), hash: deck.diffSource() === "commit" ? deck.diffCommit() : undefined }),
+    async (key): Promise<{ files?: GitFileDiff[]; error?: string }> => {
+      if (!key.hash) return {}
+      if (!key.cwd) return { error: "no working directory" }
+      const result = await loadCommitFiles(key.cwd, key.hash)
+      return typeof result === "string" ? { error: result } : { files: result }
+    },
+  )
+  const gitFiles = createMemo(() => (deck.diffSource() === "commit" ? commitRes()?.files : gitRes()?.files))
+  const gitError = createMemo(() => (deck.diffSource() === "commit" ? commitRes()?.error : gitRes()?.error))
   // Loading only when no usable result yet — a refetch (r) keeps showing the
   // previous file list instead of flashing a loading line.
   const gitLoading = createMemo(() => {
-    if (deck.diffSource() !== "git") return false
-    const res = gitRes()
+    if (deck.diffSource() === "edits") return false
+    const commit = deck.diffSource() === "commit"
+    const res = commit ? commitRes() : gitRes()
     if (res !== undefined && (res.files !== undefined || res.error !== undefined)) return false
-    return gitRes.loading
+    return commit ? commitRes.loading : gitRes.loading
   })
 
   const source = () => deck.diffSource()
-  const list = createMemo((): DiffFile[] => (source() === "git" ? (gitFiles() ?? []) : editsList()))
+  const list = createMemo((): DiffFile[] => (source() === "edits" ? editsList() : (gitFiles() ?? [])))
 
   const errorMessage = () => {
     const err = files.error as { message?: unknown }
@@ -140,11 +151,13 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
   // undefined when the panes should render.
   const statusLine = createMemo((): { text: string; color: RGBA } | undefined => {
     const text = theme().text
-    if (source() === "git") {
+    if (source() !== "edits") {
       if (gitLoading()) return { text: "git: loading…", color: text.muted }
       const error = gitError()
       if (error !== undefined) return { text: `git: ${truncate(maskSecrets(error), 80)}`, color: text.muted }
-      if (list().length === 0) return { text: "working tree clean", color: text.muted }
+      if (list().length === 0) {
+        return { text: source() === "commit" ? "no files in this commit" : "working tree clean", color: text.muted }
+      }
       return undefined
     }
     if (!useLocal() && files.error) {
@@ -155,7 +168,7 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
     return undefined
   })
   const countsShown = createMemo(() => {
-    if (source() === "git") return !gitLoading() && gitError() === undefined
+    if (source() !== "edits") return !gitLoading() && gitError() === undefined
     return editsReady() && (useLocal() || !files.error)
   })
 
@@ -594,6 +607,9 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
                 {source() === "git" ? "[git]" : "git"}
               </text>
             </box>
+            <Show when={source() === "commit"}>
+              <text wrapMode="none" fg={theme().hue.accent[200]}>{`[commit ${(deck.diffCommit() ?? "").slice(0, 8)}]`}</text>
+            </Show>
             <Show when={countsShown()}>
               <text wrapMode="none" fg={theme().text.muted}>{`${list().length} files`}</text>
               <text wrapMode="none" fg={theme().text.feedback.success.base}>{`+${totals().additions}`}</text>
