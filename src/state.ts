@@ -760,17 +760,26 @@ export function createDeck(context: Context) {
       },
       /** Open the files-changed diff page (given root session, else the last open root). */
       openDiff(file?: string, sessionID?: string) {
+        deck.openDiffPreserve(file, sessionID, false)
+      },
+      /**
+       * Open the diff page without resetting the reader's place. `?` → help →
+       * back must land on the same file, scroll and split/unified choice.
+       */
+      openDiffPreserve(file?: string, sessionID?: string, resets = true) {
         const id = sessionID ?? lastRoot() ?? rootSessionID()
         if (id) setLastRoot(id)
-        setDiffSel(0)
-        setDiffScrollRaw(0)
-        setDiffListTopRaw(0)
-        setDiffCursorRaw(0)
-        setDiffFocus("tree")
-        setDiffSourceRaw("edits")
-        setDiffCommit(undefined)
-        setDiffBack("full")
-        setDiffCollapsed(new Set<string>())
+        if (resets) {
+          setDiffSel(0)
+          setDiffScrollRaw(0)
+          setDiffListTopRaw(0)
+          setDiffCursorRaw(0)
+          setDiffFocus("tree")
+          setDiffSourceRaw("edits")
+          setDiffCommit(undefined)
+          setDiffBack("full")
+          setDiffCollapsed(new Set<string>())
+        }
         // diffOpen (and its keymap mode) follows the route effect, so the
         // "opendeck" and "opendeck-diff" modes are never pushed together.
         try {
@@ -912,7 +921,7 @@ export function createDeck(context: Context) {
       closeHelp() {
         setHelpOpen(false)
         const back = helpBack()
-        if (back === "diff") deck.openDiff()
+        if (back === "diff") deck.openDiffPreserve(undefined, undefined, false)
         else if (back === "git") deck.openGit()
         else if (back === "usage") deck.openUsage()
         else deck.openFullview()

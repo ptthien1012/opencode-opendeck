@@ -69,7 +69,10 @@ function ContextLines(props: { deck: Deck; sessionID: string; w: Width }) {
       </Show>
       <box flexDirection="row" justifyContent="space-between" width="100%">
         <text wrapMode="none" fg={mainRunning() ? theme().hue.accent[200] : theme().text.base}>
-          {truncate(`${mainRunning() ? `${spinner(props.deck.tick())} ` : ""}in ${formatTokens(tokens().input)} · out ${formatTokens(tokens().output)}`, props.w() - 14)}
+          {truncate(
+            `${mainRunning() ? `${spinner(props.deck.tick())} ` : ""}in ${formatTokens(tokens().input)} · out ${formatTokens(tokens().output)}`,
+            props.w() - (stats()?.modelID && props.w() < 34 ? 14 : 1),
+          )}
         </text>
         <Show when={stats()?.modelID && props.w() < 34}>
           <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>
@@ -159,12 +162,19 @@ function ActiveRow(props: {
     const total = agent.tokens()
     return `in ${formatTokens(total.input)} · out ${formatTokens(total.output)}`
   })
+  const cwd = createMemo((): string | undefined => {
+    try {
+      return context.location?.directory || undefined
+    } catch {
+      return undefined
+    }
+  })
   const detail = createMemo(() => {
     const pend = props.pending
     const base = pend
       ? `! ${maskSecrets(`${pend.action} ${pend.resources[0] ?? ""}`.trim())}`
       : agent.lastTool()
-        ? toolSummary(agent.lastTool()!, 60)
+        ? toolSummary(agent.lastTool()!, 60, { cwd: cwd() })
         : agent.status()
     const rightW = ctxLabel().length + tokenLabel().length + 1
     return truncate(base, Math.max(6, props.w() - rightW - 3))

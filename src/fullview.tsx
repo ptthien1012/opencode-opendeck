@@ -372,9 +372,16 @@ function TreeAgent(props: { deck: Deck; session: SessionInfo; w: number; last: b
   const label = createMemo(() =>
     agentLabel(props.session, Math.max(8, props.w - 3 - clock().length - 1 - model().length - 3)),
   )
+  const cwd = createMemo((): string | undefined => {
+    try {
+      return context.location?.directory || undefined
+    } catch {
+      return undefined
+    }
+  })
   const detail = createMemo(() => {
     const tool = agent.lastTool()
-    return tool ? toolSummary(tool, 60) : ""
+    return tool ? toolSummary(tool, 60, { cwd: cwd() }) : ""
   })
   const ctxLabel = createMemo(() => {
     const pct = agent.ctxRatio()
