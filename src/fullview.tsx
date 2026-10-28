@@ -21,7 +21,7 @@ import { formatClock, formatElapsed, formatTokens, maskSecrets, shortModel, tool
 import type { Deck } from "./state.js"
 import { cacheShare, formatDuration, hbar, toolState } from "./metrics.js"
 import { AgentTokensPanel, ChartsPanel, ErrorsPanel, FilesPanel, StatsPanel } from "./panels.js"
-import { agentDesc, agentName, assistantMessages, collectToolParts, collapseRows, openSessionSafe, sessionTokens, toolCallCounts, useAgentState, useContextStats, usePermRecords } from "./shared.js"
+import { agentDesc, agentName, assistantMessages, collectToolParts, collapseRows, sessionTokens, toolCallCounts, useAgentState, useContextStats, usePermRecords } from "./shared.js"
 import type { MergedPerm } from "./shared.js"
 import { Gauge, glyph, KeyHints, Marker, Rule, Section } from "./ui.js"
 
@@ -301,7 +301,7 @@ function MainCard(props: { deck: Deck; session: SessionInfo; w: number }) {
   )
 
   return (
-    <box flexDirection="column" width={props.w} onMouseDown={() => openSessionSafe(context, props.session.id)}>
+    <box flexDirection="column" width={props.w} onMouseDown={() => props.deck.diveInto(props.session.id)}>
       <box flexDirection="row" justifyContent="space-between" width="100%">
         <box flexDirection="row">
           <Marker color={running() ? theme().hue.accent[200] : theme().text.faint} />
@@ -356,7 +356,7 @@ function TreeAgent(props: { deck: Deck; session: SessionInfo; w: number; last: b
   })
 
   return (
-    <box flexDirection="column" width={props.w} onMouseDown={() => openSessionSafe(context, props.session.id)}>
+    <box flexDirection="column" width={props.w} onMouseDown={() => props.deck.diveInto(props.session.id)}>
       <box flexDirection="row" justifyContent="space-between" width="100%">
         <box flexDirection="row">
           <text wrapMode="none" fg={theme().text.faint}>{branch()}</text>
@@ -390,7 +390,7 @@ function DoneRow(props: { deck: Deck; session: SessionInfo; w: number }) {
     )
   })
   return (
-    <box onMouseDown={() => openSessionSafe(context, props.session.id)}>
+    <box onMouseDown={() => props.deck.diveInto(props.session.id)}>
       <text wrapMode="none" fg={failed() ? theme().text.feedback.error.base : theme().text.muted}>
         {line()}
       </text>
@@ -415,7 +415,7 @@ function LaneRow(props: { deck: Deck; session: SessionInfo; labelW: number; barW
     <box
       flexDirection="row"
       gap={1}
-      onMouseDown={() => openSessionSafe(context, props.session.id)}
+      onMouseDown={() => props.deck.diveInto(props.session.id)}
     >
       <text wrapMode="none" fg={agent.statusColor()}>{agent.indicator()}</text>
       <text wrapMode="none" fg={theme().text.base} width={props.labelW} flexShrink={0}>

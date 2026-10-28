@@ -8,7 +8,7 @@ import { usePlugin } from "@opencode/plugin/tui"
 import { createMemo, For, Show } from "solid-js"
 import { formatClock, formatTokens, maskSecrets, truncate } from "./format.js"
 import { cacheShare, diffFromTools, filesTouched, formatDuration, hbar, recentErrors, sessionStats, sparkline, turnSeries } from "./metrics.js"
-import { agentName, assistantMessages, collectToolParts, openSessionSafe, sessionTokens } from "./shared.js"
+import { agentName, assistantMessages, collectToolParts, sessionTokens } from "./shared.js"
 import type { Deck } from "./state.js"
 import { Section } from "./ui.js"
 
@@ -89,7 +89,7 @@ export function AgentTokensPanel(props: PanelProps) {
       <Section title="tokens by agent" w={props.w}>
         <For each={rows().slice(0, AGENT_BARS)}>
           {(row, index) => (
-            <box flexDirection="row" gap={1} onMouseDown={() => openSessionSafe(context, row.id)}>
+            <box flexDirection="row" gap={1} onMouseDown={() => props.deck.diveInto(row.id)}>
               <text wrapMode="none" fg={index() === 0 ? theme().hue.accent[200] : theme().text.base} width={labelW} flexShrink={0}>
                 {truncate(row.label, labelW - 1)}
               </text>
@@ -152,7 +152,7 @@ export function ErrorsPanel(props: PanelProps) {
       <Section title="errors" titleColor={theme().text.feedback.error.base} w={props.w}>
         <For each={errors()}>
           {(error) => (
-            <box onMouseDown={() => openSessionSafe(context, error.sessionID)}>
+            <box onMouseDown={() => props.deck.diveInto(error.sessionID)}>
               <text wrapMode="none" fg={theme().text.feedback.error.base}>
                 {truncate(`✗ ${formatClock(error.created)} ${who(error.sessionID)} · ${error.name}: ${maskSecrets(error.message)}`, inner())}
               </text>
@@ -205,7 +205,7 @@ export function FilesPanel(props: PanelProps) {
                 {(entry) => {
                   const counts = entry.adds !== undefined ? ` +${entry.adds} -${entry.dels ?? 0}` : ""
                   return (
-                    <box flexDirection="row" justifyContent="space-between" width="100%" onMouseDown={() => props.deck.openDiff(entry.file)}>
+                    <box flexDirection="row" justifyContent="space-between" width="100%" onMouseDown={() => props.deck.openDiff(entry.file, props.sessionID)}>
                       <text wrapMode="none" fg={theme().text.muted}>
                         {truncate(`  ${glyph(entry.status)} ${maskSecrets(entry.file)}`, Math.max(8, inner() - counts.length - 1))}
                       </text>

@@ -75,10 +75,16 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
     if (!ready()) return
     const sid = props.sessionID ?? ""
     if (initialisedFor === sid) return
-    initialisedFor = sid
-    if (!props.file) return
+    if (!props.file) {
+      initialisedFor = sid
+      return
+    }
+    // keep trying while the family's edit parts are still hydrating
     const index = list().findIndex((file) => file.file === props.file)
-    if (index >= 0) props.deck.setDiffSel(index)
+    if (index >= 0) {
+      props.deck.setDiffSel(index)
+      initialisedFor = sid
+    }
   })
 
   const totals = createMemo(() => {

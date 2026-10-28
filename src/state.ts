@@ -257,6 +257,9 @@ export function createDeck(context: Context) {
     // returnTo with its root session; once the user lands back on that root,
     // the full view re-opens itself (deck.returnPending feeds the sidebar).
     let prevRoute: ReturnType<typeof context.ui.router.current> | undefined
+    // Set by deck.diveInto() just before the full view opens a subagent, so
+    // host-initiated navigations (deep links, permission focus) never arm it.
+    let diving = false
     createEffect(() => {
       let route: ReturnType<typeof context.ui.router.current> | undefined
       try {
@@ -264,7 +267,9 @@ export function createDeck(context: Context) {
       } catch {
         return
       }
-      const fromFullview = prevRoute !== undefined && prevRoute.type === "plugin" && prevRoute.name === "opendeck"
+      const fromFullview =
+        diving && prevRoute !== undefined && prevRoute.type === "plugin" && prevRoute.name === "opendeck"
+      if (route.type !== "plugin") diving = false
       setFull(route.type === "plugin" && route.name === "opendeck")
       setDiffOpen(route.type === "plugin" && route.name === "opendeck-diff")
       if (route.type === "session") {
@@ -397,6 +402,15 @@ export function createDeck(context: Context) {
       /** Whether the full-screen Opendeck route is currently shown. */
       fullOpen: full,
       isFullRoute,
+      /** Open a session from the full view; returning to its root re-opens the full view. */
+      diveInto(sessionID: string) {
+        diving = true
+        try {
+          context.ui.router.navigate({ type: "session", sessionID })
+        } catch {
+          diving = false
+        }
+      },
       /** True while a bounce-back to the full view is armed. */
       returnPending(): boolean {
         return returnTo() !== undefined
@@ -449,11 +463,13 @@ export function createDeck(context: Context) {
       diffMove(delta: number) {
         setDiffSel((current) => current + delta)
       },
-      /** Open the files-changed diff page for the last open root session. */
-      openDiff(file?: string) {
-        const id = lastRoot() ?? rootSessionID()
+      /** Open the files-changed diff page (given root session, else the last open root). */
+      openDiff(file?: string, sessionID?: string) {
+        const id = sessionID ?? lastRoot() ?? rootSessionID()
+        if (id) setLastRoot(id)
         setDiffSel(0)
-        setDiffOpen(true)
+        // diffOpen (and its keymap mode) follows the route effect, so the
+        // "opendeck" and "opendeck-diff" modes are never pushed together.
         try {
           context.ui.router.navigate({
             type: "plugin",
@@ -462,7 +478,6 @@ export function createDeck(context: Context) {
           })
         } catch {
           // host without plugin routes: stay put
-          setDiffOpen(false)
         }
       },
       /** Back from the diff page to the Opendeck full view. */
