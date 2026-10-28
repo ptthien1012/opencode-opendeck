@@ -132,22 +132,23 @@ export function UsageView(props: { deck: Deck; sessionID?: string }) {
   const modelH = createMemo(() => Math.max(3, H() - fixedH - 4))
   const modelTop = createMemo(() => Math.max(0, Math.min(Math.max(0, models().length - modelH()), deck.usageTop())))
 
-  const NAME_W = 30
+  // Name column and bar shrink on narrow terminals; numbers keep 8 cols.
   const NUM_W = 8
+  const nameW = createMemo(() => Math.min(30, Math.max(12, W() - 3 - NUM_W * 5 - 4 - 4)))
   function renderModel(row: ModelRow, index: number) {
-    const barW = Math.max(4, Math.min(30, W() - 2 - 1 - NAME_W - NUM_W * 5 - 6))
+    const barW = Math.max(0, Math.min(30, W() - 3 - 2 - nameW() - NUM_W * 5 - 2))
     const filled = maxModel() > 0 ? Math.max(row.total > 0 ? 1 : 0, Math.round((row.total / maxModel()) * barW)) : 0
     const name = `${row.id}${row.variant ? ` #${row.variant}` : ""} · ${row.provider}`
     return (
       <box flexDirection="row" width={W() - 3}>
-        <text wrapMode="none" fg={index === 0 ? theme().hue.accent[200] : theme().text.base}>{`  ${fit(name, NAME_W)}`}</text>
-        <text wrapMode="none" fg={theme().text.muted}>{fit(compact(row.steps), NUM_W, true)}</text>
-        <text wrapMode="none" fg={theme().text.base}>{fit(compact(row.input), NUM_W, true)}</text>
-        <text wrapMode="none" fg={theme().hue.accent[200]}>{fit(compact(row.cacheRead), NUM_W, true)}</text>
-        <text wrapMode="none" fg={theme().text.feedback.success.base}>{fit(compact(row.output + row.reasoning), NUM_W, true)}</text>
-        <text wrapMode="none" fg={theme().text.muted}>{fit(compact(row.total), NUM_W, true)}</text>
-        <text wrapMode="none" fg={theme().hue.accent[200]}>{`  ${"█".repeat(Math.max(0, filled))}`}</text>
-        <text wrapMode="none" fg={theme().text.faint}>{"░".repeat(Math.max(0, barW - filled))}</text>
+        <text wrapMode="none" flexShrink={0} fg={index === 0 ? theme().hue.accent[200] : theme().text.base}>{`  ${fit(name, nameW())}`}</text>
+        <text wrapMode="none" flexShrink={0} fg={theme().text.muted}>{fit(compact(row.steps), NUM_W, true)}</text>
+        <text wrapMode="none" flexShrink={0} fg={theme().text.base}>{fit(compact(row.input), NUM_W, true)}</text>
+        <text wrapMode="none" flexShrink={0} fg={theme().hue.accent[200]}>{fit(compact(row.cacheRead), NUM_W, true)}</text>
+        <text wrapMode="none" flexShrink={0} fg={theme().text.feedback.success.base}>{fit(compact(row.output + row.reasoning), NUM_W, true)}</text>
+        <text wrapMode="none" flexShrink={0} fg={theme().text.muted}>{fit(compact(row.total), NUM_W, true)}</text>
+        <text wrapMode="none" flexShrink={0} fg={theme().hue.accent[200]}>{`  ${"█".repeat(Math.max(0, filled))}`}</text>
+        <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>{"░".repeat(Math.max(0, barW - filled))}</text>
       </box>
     )
   }
@@ -170,14 +171,16 @@ export function UsageView(props: { deck: Deck; sessionID?: string }) {
     return at ? new Date(at).toTimeString().slice(0, 5) : ""
   })
 
+  // 10 label + 9 value + 1 + gauge + 5 pct; the gauge absorbs narrow widths.
+  const gaugeCells = createMemo(() => Math.max(0, Math.min(10, inner() - 25)))
   function tokenRow(label: string, value: number, share: number, color: RGBA) {
     return (
       <box flexDirection="row" width={inner()}>
-        <text wrapMode="none" fg={theme().text.muted}>{fit(label, 10)}</text>
-        <text wrapMode="none" fg={color}>{fit(compact(value), 9, true)}</text>
-        <text wrapMode="none">{" "}</text>
-        <Gauge ratio={share} cells={10} />
-        <text wrapMode="none" fg={theme().text.faint}>{fit(`${Math.round(share * 100)}%`, 5, true)}</text>
+        <text wrapMode="none" flexShrink={0} fg={theme().text.muted}>{fit(label, 10)}</text>
+        <text wrapMode="none" flexShrink={0} fg={color}>{fit(compact(value), 9, true)}</text>
+        <text wrapMode="none" flexShrink={0}>{" "}</text>
+        <Gauge ratio={share} cells={gaugeCells()} />
+        <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>{fit(`${Math.round(share * 100)}%`, 5, true)}</text>
       </box>
     )
   }
@@ -196,50 +199,50 @@ export function UsageView(props: { deck: Deck; sessionID?: string }) {
     >
       <box flexDirection="column" width="100%" marginBottom={1}>
         <box flexDirection="row" gap={1} width="100%">
-          <text wrapMode="none" fg={theme().hue.accent[200]}>
+          <text wrapMode="none" flexShrink={0} fg={theme().hue.accent[200]}>
             <b>{`${glyph.main} opendeck · usage`}</b>
           </text>
           <For each={ranges}>
             {(range, index) => (
               <box onMouseDown={() => deck.setUsageRange(range)}>
-                <text wrapMode="none" fg={deck.usageRange() === range ? theme().hue.accent[200] : theme().text.faint}>
+                <text wrapMode="none" flexShrink={0} fg={deck.usageRange() === range ? theme().hue.accent[200] : theme().text.faint}>
                   {deck.usageRange() === range ? `[${index() + 1} ${range}]` : ` ${index() + 1} ${range} `}
                 </text>
               </box>
             )}
           </For>
           <box onMouseDown={() => deck.toggleUsageScope()}>
-            <text wrapMode="none" fg={theme().text.muted}>
+            <text wrapMode="none" flexShrink={0} fg={theme().text.muted}>
               {deck.usageScope() === "all" ? "· [all] project" : "· all [project]"}
             </text>
           </box>
           <Show when={stats.loading}>
-            <text wrapMode="none" fg={theme().text.faint}>loading…</text>
+            <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>loading…</text>
           </Show>
           <Show when={updated()}>
-            <text wrapMode="none" fg={theme().text.faint}>{`updated ${updated()}`}</text>
+            <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>{`updated ${updated()}`}</text>
           </Show>
         </box>
         <Rule w={W()} />
       </box>
       <Show
         when={stats()?.error === undefined}
-        fallback={<text wrapMode="none" fg={theme().text.muted}>{`usage: ${truncate(maskSecrets(stats()?.error ?? ""), 100)}`}</text>}
+        fallback={<text wrapMode="none" flexShrink={0} fg={theme().text.muted}>{`usage: ${truncate(maskSecrets(stats()?.error ?? ""), 100)}`}</text>}
       >
-        <Show when={data()} keyed fallback={<text wrapMode="none" fg={theme().text.muted}>loading usage…</text>}>
+        <Show when={data()} keyed fallback={<text wrapMode="none" flexShrink={0} fg={theme().text.muted}>loading usage…</text>}>
           {(d: SessionStatsInfo) => (
             <>
               <box flexDirection="row" gap={2} width={W()}>
                 <Section title="overview" w={colW()}>
-                  <text wrapMode="none" fg={theme().text.base}>{fit(`${compact(d.sessions)} sessions · ${compact(d.subagents)} subagents`, inner())}</text>
-                  <text wrapMode="none" fg={theme().text.base}>{fit(`${compact(d.prompts)} prompts · ${compact(d.steps)} steps`, inner())}</text>
-                  <text wrapMode="none" fg={theme().text.muted}>{fit(`${d.activeDays} active days · streak ${d.streak}`, inner())}</text>
+                  <text wrapMode="none" flexShrink={0} fg={theme().text.base}>{fit(`${compact(d.sessions)} sessions · ${compact(d.subagents)} subagents`, inner())}</text>
+                  <text wrapMode="none" flexShrink={0} fg={theme().text.base}>{fit(`${compact(d.prompts)} prompts · ${compact(d.steps)} steps`, inner())}</text>
+                  <text wrapMode="none" flexShrink={0} fg={theme().text.muted}>{fit(`${d.activeDays} active days · streak ${d.streak}`, inner())}</text>
                   <Show when={toolTotals()}>
-                    <text wrapMode="none" fg={theme().text.muted}>
+                    <text wrapMode="none" flexShrink={0} fg={theme().text.muted}>
                       {fit(`${compact(toolTotals()?.calls ?? 0)} tool calls · ${compact(toolTotals()?.failed ?? 0)} failed`, inner())}
                     </text>
                   </Show>
-                  <text wrapMode="none" fg={theme().text.faint}>{fit(`cache hit ${Math.round(cacheHit(d.tokens) * 100)}%`, inner())}</text>
+                  <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>{fit(`cache hit ${Math.round(cacheHit(d.tokens) * 100)}%`, inner())}</text>
                 </Section>
                 <Section title="tokens" right={compact(d.tokens.input + d.tokens.output + d.tokens.reasoning + (d.tokens.cache?.read ?? 0) + (d.tokens.cache?.write ?? 0))} w={colW()}>
                   {(() => {
@@ -263,7 +266,7 @@ export function UsageView(props: { deck: Deck; sessionID?: string }) {
                       <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>{`${DAYS[dow()] ?? "   "} `}</text>
                       <For each={row.slice(-heatCols())}>
                         {(value) => (
-                          <text wrapMode="none" fg={heatColor(value)}>
+                          <text wrapMode="none" flexShrink={0} fg={heatColor(value)}>
                             {value < 0 ? "  " : `${HEAT[value] ?? "■"} `}
                           </text>
                         )}
@@ -274,19 +277,19 @@ export function UsageView(props: { deck: Deck; sessionID?: string }) {
                 <For each={chart()}>
                   {(line, index) => (
                     <box flexDirection="row" width={W() - 2}>
-                      <text wrapMode="none" fg={theme().text.faint}>{fit(index() === 0 ? compact(maxDay()) : index() === chart().length - 1 ? "0" : "", 8, true)}</text>
-                      <text wrapMode="none">{"  "}</text>
-                      <text wrapMode="none" fg={theme().hue.accent[200]}>{line}</text>
+                      <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>{fit(index() === 0 ? compact(maxDay()) : index() === chart().length - 1 ? "0" : "", 8, true)}</text>
+                      <text wrapMode="none" flexShrink={0}>{"  "}</text>
+                      <text wrapMode="none" flexShrink={0} fg={theme().hue.accent[200]}>{line}</text>
                     </box>
                   )}
                 </For>
               </Section>
               <box flexDirection="row" width={W()}>
-                <text wrapMode="none" fg={theme().text.base}>
+                <text wrapMode="none" flexShrink={0} fg={theme().text.base}>
                   <b>{`── models (${models().length}) `}</b>
                 </text>
-                <text wrapMode="none" fg={theme().text.faint}>
-                  {fit(`${fit("", NAME_W - 15)}${fit("steps", NUM_W, true)}${fit("input", NUM_W, true)}${fit("cache r", NUM_W, true)}${fit("out", NUM_W, true)}${fit("total", NUM_W, true)}`, W() - 16)}
+                <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>
+                  {fit(`${fit("", Math.max(0, nameW() - 15 + 2))}${fit("steps", NUM_W, true)}${fit("input", NUM_W, true)}${fit("cache r", NUM_W, true)}${fit("out", NUM_W, true)}${fit("total", NUM_W, true)}`, W() - 16)}
                 </text>
               </box>
               <ScrollList
@@ -307,16 +310,16 @@ export function UsageView(props: { deck: Deck; sessionID?: string }) {
                         const filled = maxTool() > 0 ? Math.max(1, Math.round((tool.calls / maxTool()) * barW)) : 0
                         return (
                           <box flexDirection="row" width={W() - 2}>
-                            <text wrapMode="none" fg={theme().text.base}>{fit(tool.name, 14)}</text>
-                            <text wrapMode="none" fg={theme().text.muted}>{fit(compact(tool.calls), 8, true)}</text>
-                            <text wrapMode="none" fg={tool.failed > 0 ? theme().text.feedback.error.base : theme().text.faint}>
+                            <text wrapMode="none" flexShrink={0} fg={theme().text.base}>{fit(tool.name, 14)}</text>
+                            <text wrapMode="none" flexShrink={0} fg={theme().text.muted}>{fit(compact(tool.calls), 8, true)}</text>
+                            <text wrapMode="none" flexShrink={0} fg={tool.failed > 0 ? theme().text.feedback.error.base : theme().text.faint}>
                               {fit(`${compact(tool.failed)} fail`, 8, true)}
                             </text>
-                            <text wrapMode="none" fg={theme().text.faint}>
+                            <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>
                               {fit(tool.durationP50 !== undefined ? `p50 ${Math.round(tool.durationP50)}ms` : "", 10, true)}
                             </text>
-                            <text wrapMode="none" fg={theme().hue.accent[200]}>{`  ${"█".repeat(Math.max(0, filled))}`}</text>
-                            <text wrapMode="none" fg={theme().text.faint}>{"░".repeat(Math.max(0, barW - filled))}</text>
+                            <text wrapMode="none" flexShrink={0} fg={theme().hue.accent[200]}>{`  ${"█".repeat(Math.max(0, filled))}`}</text>
+                            <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>{"░".repeat(Math.max(0, barW - filled))}</text>
                           </box>
                         )
                       }}

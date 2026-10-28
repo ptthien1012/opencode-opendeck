@@ -8,8 +8,6 @@ export type UsageRange = "30d" | "90d" | "1y"
 
 export const RANGE_DAYS: Record<UsageRange, number> = { "30d": 30, "90d": 90, "1y": 365 }
 
-const DAY_MS = 86_400_000
-
 /** Local calendar date "YYYY-MM-DD" of a ms timestamp. */
 export function dayKey(ms: number): string {
   const d = new Date(ms)
@@ -23,8 +21,11 @@ export function dailySeries(activity: readonly SessionStatsActivity[], days: num
   const byDate = new Map<string, number>()
   for (const item of activity) byDate.set(item.date, (byDate.get(item.date) ?? 0) + item.steps)
   const out: { date: string; value: number }[] = []
+  // Step whole calendar days from local midnight (DST-safe: no ms arithmetic).
+  const anchor = new Date(now)
   for (let i = Math.max(1, days) - 1; i >= 0; i--) {
-    const date = dayKey(now - i * DAY_MS)
+    const day = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - i, 12)
+    const date = dayKey(day.getTime())
     out.push({ date, value: byDate.get(date) ?? 0 })
   }
   return out
@@ -52,7 +53,8 @@ export function heatmapGrid(series: readonly { date: string; value: number }[]):
   const first = series[0]!
   const [y, m, d] = first.date.split("-").map(Number)
   // Monday = 0 … Sunday = 6
-  const startDow = (new Date(y!, (m ?? 1) - 1, d ?? 1).getDay() + 6) % 7
+  const rawDow = (new Date(y!, (m ?? 1) - 1, d ?? 1).getDay() + 6) % 7
+  const startDow = Number.isFinite(rawDow) ? rawDow : 0
   const cells: number[] = [...Array<number>(startDow).fill(-1), ...series.map((item) => level(item.value, max))]
   while (cells.length % 7 !== 0) cells.push(-1)
   for (let i = 0; i < cells.length; i++) rows[i % 7]!.push(cells[i]!)

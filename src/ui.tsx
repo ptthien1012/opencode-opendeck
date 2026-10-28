@@ -82,9 +82,15 @@ export function Gauge(props: { ratio: number | undefined; cells: number }) {
     return Math.round(Math.max(0, Math.min(1, props.ratio)) * cells())
   })
   return (
-    <box flexDirection="row">
-      <text wrapMode="none" fg={theme().hue.accent[200]}>{"▰".repeat(filled())}</text>
-      <text wrapMode="none" fg={theme().text.faint}>{"▱".repeat(cells() - filled())}</text>
+    // fixed width: an empty "" text node can still take a layout cell, so
+    // the box pins the gauge to exactly `cells` columns either way
+    <box flexDirection="row" width={cells()} flexShrink={0}>
+      <Show when={filled() > 0}>
+        <text wrapMode="none" flexShrink={0} fg={theme().hue.accent[200]}>{"▰".repeat(filled())}</text>
+      </Show>
+      <Show when={cells() - filled() > 0}>
+        <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>{"▱".repeat(cells() - filled())}</text>
+      </Show>
     </box>
   )
 }
