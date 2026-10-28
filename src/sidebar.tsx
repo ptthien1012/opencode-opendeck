@@ -13,7 +13,6 @@ import { mixColor, spinner } from "./anim.js"
 import { formatBar, formatElapsed, formatTokens, maskSecrets, shortModel, toolSummary, truncate } from "./format.js"
 import type { Deck } from "./state.js"
 import {
-  agentDesc,
   agentName,
   collectToolParts,
   collapseRows,
