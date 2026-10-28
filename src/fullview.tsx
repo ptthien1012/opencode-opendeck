@@ -27,7 +27,9 @@ import {
   truncate,
 } from "./format.js"
 import type { Deck } from "./state.js"
-import { agentDesc, agentName, collectToolParts, collapseRows, openSessionSafe, sessionTokens, toolCallCounts, useAgentState, useContextStats, usePermRecords } from "./shared.js"
+import { cacheShare, formatDuration, hbar, toolState } from "./metrics.js"
+import { AgentTokensPanel, ChartsPanel, ErrorsPanel, FilesPanel, StatsPanel } from "./panels.js"
+import { agentDesc, agentName, assistantMessages, collectToolParts, collapseRows, openSessionSafe, sessionTokens, toolCallCounts, useAgentState, useContextStats, usePermRecords } from "./shared.js"
 import type { MergedPerm } from "./shared.js"
 
 const MAX_CARDS = 6
@@ -91,6 +93,7 @@ function MainPanel(props: { deck: Deck; sessionID: string; w: number }) {
 
   const { stats, ratio } = useContextStats(props.deck, () => props.sessionID)
   const tokens = createMemo(() => sessionTokens(context, props.sessionID))
+  const cached = createMemo(() => Math.round(cacheShare(assistantMessages(context.data.session.message.list(props.sessionID))) * 100))
   const running = createMemo(() => context.data.session.status(props.sessionID) === "running")
   const model = createMemo(() => stats()?.modelID ?? context.data.session.get(props.sessionID)?.model?.id)
   const barColor = createMemo(() => {
@@ -133,8 +136,13 @@ function MainPanel(props: { deck: Deck; sessionID: string; w: number }) {
         )}
       </Show>
       <text wrapMode="none" fg={theme().text.base}>
-        {truncate(`total in ${formatTokens(tokens().input)} · out ${formatTokens(tokens().output)}`, inner())}
+        {truncate(`total in ${formatTokens(tokens().input)} (cache ${cached()}%) · out ${formatTokens(tokens().output)}`, inner())}
       </text>
+      <Show when={(ratio() ?? 0) >= 0.7}>
+        <text wrapMode="none" fg={barColor()}>
+          {truncate(`⚠ ctx ${Math.round((ratio() ?? 0) * 100)}% — compaction soon`, inner())}
+        </text>
+      </Show>
     </box>
   )
 }
@@ -216,7 +224,9 @@ function ToolsPanel(props: { deck: Deck; sessionID: string; w: number }) {
   // MCP server keys first; each group keeps the count-desc order.
   const rows = createMemo(() => [...counts()].sort((a, b) => Number(b.mcp) - Number(a.mcp)))
   const total = createMemo(() => counts().reduce((sum, row) => sum + row.count, 0))
-  const inner = createMemo(() => Math.max(10, props.w - 4))
+  const max = createMemo(() => Math.max(0, ...counts().map((row) => row.count)))
+  const labelW = 14
+  const barW = createMemo(() => Math.max(6, props.w - 4 - labelW - 7))
 
   return (
     <Show when={total() > 0}>
@@ -226,9 +236,13 @@ function ToolsPanel(props: { deck: Deck; sessionID: string; w: number }) {
         </text>
         <For each={rows().slice(0, TOOL_ROWS)}>
           {(row) => (
-            <text wrapMode="none" fg={row.mcp ? theme().hue.accent[200] : theme().text.muted}>
-              {truncate(`${row.key} ×${row.count}`, inner())}
-            </text>
+            <box flexDirection="row" gap={1}>
+              <text wrapMode="none" fg={row.mcp ? theme().hue.accent[200] : theme().text.muted} width={labelW} flexShrink={0}>
+                {truncate(row.key, labelW - 1)}
+              </text>
+              <text wrapMode="none" fg={row.mcp ? theme().hue.accent[200] : theme().text.faint}>{hbar(row.count, max(), barW())}</text>
+              <text wrapMode="none" fg={theme().text.muted} flexShrink={0}>×{row.count}</text>
+            </box>
           )}
         </For>
         <Show when={rows().length > TOOL_ROWS}>
@@ -270,14 +284,17 @@ function Timeline(props: { deck: Deck; sessionID: string; w: number; rows: numbe
         <For each={rows()}>
           {(row) => {
             const part = row.item.part
-            const running = part.state.status === "running" || part.state.status === "streaming"
+            // cut-off calls (session no longer running) show ⚠, not a spinner
+            const state = createMemo(() => toolState(part, context.data.session.status(row.item.sessionID) === "running"))
             const iconGlyph = createMemo(() => {
-              if (running) return spinner(props.deck.tick())
-              return part.state.status === "error" ? "✗" : "✓"
+              if (state() === "running") return spinner(props.deck.tick())
+              if (state() === "interrupted") return "⚠"
+              return state() === "error" ? "✗" : "✓"
             })
             const iconColor = createMemo(() => {
-              if (running) return theme().text.feedback.warning.base
-              return part.state.status === "error" ? theme().text.feedback.error.base : theme().text.muted
+              if (state() === "running") return theme().text.feedback.warning.base
+              if (state() === "interrupted") return theme().text.feedback.warning.muted
+              return state() === "error" ? theme().text.feedback.error.base : theme().text.muted
             })
             return (
               <box flexDirection="row" gap={1}>
@@ -323,6 +340,13 @@ function AgentCard(props: { deck: Deck; session: SessionInfo; w: number }) {
     const ctx = agent.ctx()
     return ctx !== undefined ? `ctx ${formatTokens(ctx)}` : "starting…"
   })
+  // Top tools/MCP servers this agent called, e.g. "finder×4 shell×2".
+  const toolsLine = createMemo(() =>
+    toolCallCounts(collectToolParts(context, [props.session.id]))
+      .slice(0, 3)
+      .map((row) => `${row.key}×${row.count}`)
+      .join(" "),
+  )
 
   return (
     <box
@@ -349,12 +373,58 @@ function AgentCard(props: { deck: Deck; session: SessionInfo; w: number }) {
       <text wrapMode="none" fg={theme().text.faint}>
         {truncate(`${ctxLabel()} · ↑${formatTokens(agent.tokens().input)} ↓${formatTokens(agent.tokens().output)}`, inner())}
       </text>
+      <Show when={toolsLine()}>
+        <text wrapMode="none" fg={theme().text.faint}>{truncate(toolsLine(), inner())}</text>
+      </Show>
       <box flexDirection="row" justifyContent="space-between" width="100%">
         <text wrapMode="none" fg={agent.statusColor()}>{agent.status()}</text>
         <text wrapMode="none" fg={theme().text.muted} flexShrink={0}>
           {agent.elapsedMs() !== undefined ? formatElapsed(agent.elapsedMs()!) : "-"}
         </text>
       </box>
+    </box>
+  )
+}
+
+/**
+ * Orchestrator (main session) as a compact 2-line card: name · model and
+ * working/idle with session age, then its top tools. The main panel on the
+ * left already shows ctx and tokens, so they are not repeated here.
+ */
+function MainCard(props: { deck: Deck; session: SessionInfo; w: number }) {
+  const context = usePlugin()
+  const theme = () => context.theme
+  const agent = useAgentState(props.deck, props.session)
+  const inner = createMemo(() => Math.max(8, props.w - 4))
+  const running = createMemo(() => context.data.session.status(props.session.id) === "running")
+  const age = createMemo(() => formatDuration(Math.max(0, props.deck.now() - props.session.time.created)))
+  const right = createMemo(() => (running() ? `${spinner(props.deck.tick())} working · ${age()}` : `○ idle · ${age()}`))
+  const toolsLine = createMemo(() =>
+    toolCallCounts(collectToolParts(context, [props.session.id]))
+      .slice(0, 4)
+      .map((row) => `${row.key}×${row.count}`)
+      .join(" "),
+  )
+
+  return (
+    <box
+      flexDirection="column"
+      border
+      borderStyle="rounded"
+      borderColor={running() ? theme().hue.accent[400] : theme().border.base}
+      paddingX={1}
+      width={props.w}
+      onMouseDown={() => openSessionSafe(context, props.session.id)}
+    >
+      <box flexDirection="row" justifyContent="space-between" width="100%">
+        <text wrapMode="none" fg={theme().hue.accent[200]}>
+          <b>{truncate(`◆ ${props.session.agent ?? "main"} · ${shortModel(agent.model()?.id, 14)}`, Math.max(8, inner() - right().length - 1))}</b>
+        </text>
+        <text wrapMode="none" fg={running() ? theme().hue.accent[200] : theme().text.muted} flexShrink={0}>
+          {right()}
+        </text>
+      </box>
+      <text wrapMode="none" fg={theme().text.faint}>{truncate(toolsLine() || "no tool calls yet", inner())}</text>
     </box>
   )
 }
@@ -534,7 +604,7 @@ function AgentsArea(props: { deck: Deck; sessionID: string; w: number }) {
         >
           <box flexDirection="column">
             <Show when={main()} keyed>
-              {(session: SessionInfo) => <AgentCard deck={props.deck} session={session} w={props.w} />}
+              {(session: SessionInfo) => <MainCard deck={props.deck} session={session} w={props.w} />}
             </Show>
             <box paddingLeft={2} flexDirection="column">
               <text wrapMode="none" fg={theme().text.faint}>{`├ running (${runningCount()})`}</text>
@@ -608,21 +678,31 @@ export function FullView(props: { deck: Deck; sessionID?: string }) {
                 <box flexDirection="column" width={colW()}>
                   <MainPanel deck={props.deck} sessionID={id} w={colW()} />
                   <AgentsArea deck={props.deck} sessionID={id} w={colW()} />
+                  <ErrorsPanel deck={props.deck} sessionID={id} w={colW()} />
                   <GatePanel deck={props.deck} sessionID={id} w={colW()} />
+                  <StatsPanel deck={props.deck} sessionID={id} w={colW()} />
+                  <ChartsPanel deck={props.deck} sessionID={id} w={colW()} />
                   <ToolsPanel deck={props.deck} sessionID={id} w={colW()} />
+                  <AgentTokensPanel deck={props.deck} sessionID={id} w={colW()} />
                   <Timeline deck={props.deck} sessionID={id} w={colW()} rows={8} />
+                  <FilesPanel deck={props.deck} sessionID={id} w={colW()} />
                 </box>
               }
             >
               <box flexDirection="row" gap={2} width={W()}>
                 <box flexDirection="column" width={colW()}>
                   <MainPanel deck={props.deck} sessionID={id} w={colW()} />
+                  <StatsPanel deck={props.deck} sessionID={id} w={colW()} />
+                  <ChartsPanel deck={props.deck} sessionID={id} w={colW()} />
+                  <ErrorsPanel deck={props.deck} sessionID={id} w={colW()} />
                   <GatePanel deck={props.deck} sessionID={id} w={colW()} />
-                  <ToolsPanel deck={props.deck} sessionID={id} w={colW()} />
                   <Timeline deck={props.deck} sessionID={id} w={colW()} rows={12} />
                 </box>
                 <box flexDirection="column" width={colW()}>
                   <AgentsArea deck={props.deck} sessionID={id} w={colW()} />
+                  <AgentTokensPanel deck={props.deck} sessionID={id} w={colW()} />
+                  <ToolsPanel deck={props.deck} sessionID={id} w={colW()} />
+                  <FilesPanel deck={props.deck} sessionID={id} w={colW()} />
                 </box>
               </box>
             </Show>

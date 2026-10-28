@@ -11,9 +11,11 @@ import type { BoxRenderable } from "@opentui/core"
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js"
 import { mixColor, spinner } from "./anim.js"
 import { formatBar, formatElapsed, formatTokens, maskSecrets, shortModel, toolSummary, truncate } from "./format.js"
+import { cacheShare, sparkline, toolState, turnSeries } from "./metrics.js"
 import type { Deck } from "./state.js"
 import {
   agentName,
+  assistantMessages,
   collectToolParts,
   collapseRows,
   doneGlyph,
@@ -47,11 +49,18 @@ function ContextLines(props: { deck: Deck; sessionID: string; w: Width }) {
     return theme().hue.accent[200]
   })
   const tokens = createMemo(() => sessionTokens(context, props.sessionID))
+  const messages = createMemo(() => assistantMessages(context.data.session.message.list(props.sessionID)))
+  const cached = createMemo(() => Math.round(cacheShare(messages()) * 100))
+  // Output tokens per turn; the host sidebar already shows Context, so the
+  // ctx bar only appears once it is worth a warning (>= 70%).
+  const spark = createMemo(() => sparkline(turnSeries(messages()).map((turn) => turn.output), Math.max(4, props.w() - 17)))
+  const warn = createMemo(() => (ratio() ?? 0) >= 0.7)
   const mainRunning = createMemo(() => context.data.session.status(props.sessionID) === "running")
   const barW = createMemo(() => (props.w() >= 34 ? 10 : 6))
 
   return (
     <box>
+      <Show when={warn()}>
       <box flexDirection="row" gap={1} width="100%">
         <text wrapMode="none" fg={mainRunning() ? theme().hue.accent[200] : theme().text.muted}>
           {mainRunning() ? `${spinner(props.deck.tick())} ctx` : "ctx"}
@@ -75,10 +84,12 @@ function ContextLines(props: { deck: Deck; sessionID: string; w: Width }) {
             </>
           )}
         </Show>
+        <text wrapMode="none" fg={barColor()}>⚠</text>
       </box>
+      </Show>
       <box flexDirection="row" justifyContent="space-between" width="100%">
-        <text wrapMode="none" fg={theme().text.base}>
-          {truncate(`in ${formatTokens(tokens().input)} · out ${formatTokens(tokens().output)}`, props.w() - 14)}
+        <text wrapMode="none" fg={mainRunning() ? theme().hue.accent[200] : theme().text.base}>
+          {truncate(`${mainRunning() ? `${spinner(props.deck.tick())} ` : ""}↑${formatTokens(tokens().input)} ↓${formatTokens(tokens().output)}`, props.w() - 14)}
         </text>
         <Show when={stats()?.modelID}>
           <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>
@@ -86,6 +97,13 @@ function ContextLines(props: { deck: Deck; sessionID: string; w: Width }) {
           </text>
         </Show>
       </box>
+      <Show when={spark().trim().length > 0}>
+        <box flexDirection="row" gap={1}>
+          <text wrapMode="none" fg={theme().text.faint}>out</text>
+          <text wrapMode="none" fg={theme().text.feedback.success.base}>{spark()}</text>
+          <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>{`cache ${cached()}%`}</text>
+        </box>
+      </Show>
     </box>
   )
 }
@@ -110,7 +128,7 @@ function McpSection(props: { deck: Deck; sessionID: string; w: Width }) {
     <Show when={rows().length > 0}>
       <box marginTop={1}>
         <text wrapMode="none" fg={theme().text.base}>
-          <b>MCP ({total()} calls)</b>
+          <b>MCP calls ({total()} {total() === 1 ? "call" : "calls"})</b>
         </text>
         <For each={rows().slice(0, MCP_LIMIT)}>
           {(row) => {
@@ -382,14 +400,17 @@ function ActivitySection(props: { deck: Deck; sessionID: string; w: Width; activ
         <For each={rows()}>
           {(row) => {
             const part = row.item.part
-            const running = part.state.status === "running" || part.state.status === "streaming"
+            // cut-off calls (session no longer running) show ⚠, not a spinner
+            const state = createMemo(() => toolState(part, context.data.session.status(row.item.sessionID) === "running"))
             const iconGlyph = createMemo(() => {
-              if (running) return spinner(props.deck.tick())
-              return part.state.status === "error" ? "✗" : "✓"
+              if (state() === "running") return spinner(props.deck.tick())
+              if (state() === "interrupted") return "⚠"
+              return state() === "error" ? "✗" : "✓"
             })
             const iconColor = createMemo(() => {
-              if (running) return theme().text.feedback.warning.base
-              return part.state.status === "error" ? theme().text.feedback.error.base : theme().text.muted
+              if (state() === "running") return theme().text.feedback.warning.base
+              if (state() === "interrupted") return theme().text.feedback.warning.muted
+              return state() === "error" ? theme().text.feedback.error.base : theme().text.muted
             })
             const label = createMemo(() => {
               const prefix = row.item.who ? `[${row.item.who}] ` : ""

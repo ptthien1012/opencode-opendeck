@@ -1,4 +1,5 @@
 import type { SessionMessageAssistantTool } from "@opencode/client"
+import { executeTarget } from "./metrics.js"
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" })
 
@@ -96,6 +97,9 @@ export function toolSummary(part: SessionMessageAssistantTool, max = 30): string
       break
     }
   }
+  // code-mode MCP calls: show the server.tool they hit instead of the JS body
+  const target = executeTarget(part)
+  if (target) detail = target
   const text = detail ? `${part.name} ${maskSecrets(detail)}` : part.name
   return truncate(text.replace(/\s+/g, " ").trim(), max)
 }
