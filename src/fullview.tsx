@@ -2,12 +2,13 @@
 // Full-screen Opendeck view (Part 2), registered as the plugin route
 // "opendeck" — the widest surface the v2 TUI API offers (a whole page).
 // Borderless Grok-CLI style (see ui.tsx): a `◆ opendeck` header with a live
-// ctx gauge, then rule-headed sections — main (ctx gauge · tokens),
-// permissions as a filling cell strip, tools, an activity timeline, and
-// agents as a tree: the orchestrator card on top, running subagents as
-// ├─/└─ branches, finished subagents as compact done rows below, or
-// swimlanes on one shared time axis. `t` toggles cards ⇄ lanes; key hints
-// sit at the bottom.
+// ctx gauge, a clickable tab row (1 Overview · 2 Agents · 3 Activity ·
+// 4 Files), then one full-width stack per tab — overview: main, stats,
+// charts, errors (plus the permissions gate while requests are pending);
+// agents: the orchestrator tree or swimlanes, agent tokens, tools, gate;
+// activity: the tool timeline sized to the terminal height; files: the
+// changed-files panel. `t` toggles cards ⇄ lanes; key hints sit at the
+// bottom.
 //
 // Everything animates off the deck's single shared 120ms ticker — this file
 // creates no timers of its own.
@@ -15,10 +16,10 @@
 import type { SessionInfo } from "@opencode/client"
 import { usePlugin } from "@opencode/plugin/tui"
 import type { BoxRenderable, RGBA } from "@opentui/core"
-import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 import { spinner } from "./anim.js"
 import { formatClock, formatElapsed, formatTokens, maskSecrets, shortModel, toolSummary, truncate } from "./format.js"
-import type { Deck } from "./state.js"
+import type { Deck, FullTab } from "./state.js"
 import { cacheShare, formatDuration, hbar, toolState } from "./metrics.js"
 import { AgentTokensPanel, ChartsPanel, ErrorsPanel, FilesPanel, StatsPanel } from "./panels.js"
 import { agentDesc, agentName, assistantMessages, collectToolParts, collapseRows, sessionTokens, toolCallCounts, useAgentState, useContextStats, usePermRecords } from "./shared.js"
@@ -31,9 +32,17 @@ const DONE_ROWS = 8
 const PENDING_ROWS = 3
 const TOOL_ROWS = 6
 
+/** Header tab row in key order (1–4); each label carries its key number. */
+const FULL_TABS: readonly { id: FullTab; label: string }[] = [
+  { id: "overview", label: "1 Overview" },
+  { id: "agents", label: "2 Agents" },
+  { id: "activity", label: "3 Activity" },
+  { id: "files", label: "4 Files" },
+]
+
 /** --- Panels -------------------------------------------------------------- */
 
-/** Header: `◆ opendeck  <title>` left, `ctx ▰▱ NN% · model` right, rule below. */
+/** Header: `◆ opendeck  <title>` left, `ctx ▰▱ NN% · model` right, then a clickable tab row, then the rule. */
 function TitleRow(props: { deck: Deck; sessionID: string; w: number }) {
   const context = usePlugin()
   const theme = () => context.theme
@@ -67,6 +76,22 @@ function TitleRow(props: { deck: Deck; sessionID: string; w: number }) {
           </Show>
           <text wrapMode="none" fg={theme().text.faint}>{`· ${model()}`}</text>
         </box>
+      </box>
+      <box flexDirection="row" width="100%">
+        <For each={FULL_TABS}>
+          {(tab, index) => (
+            <>
+              <Show when={index() > 0}>
+                <text wrapMode="none" fg={theme().text.faint}>{" · "}</text>
+              </Show>
+              <box flexDirection="row" onMouseDown={() => props.deck.setFullTab(tab.id)}>
+                <text wrapMode="none" fg={props.deck.fullTab() === tab.id ? theme().hue.accent[200] : theme().text.faint}>
+                  {props.deck.fullTab() === tab.id ? <b>{tab.label}</b> : tab.label}
+                </text>
+              </box>
+            </>
+          )}
+        </For>
       </box>
       <Rule w={props.w} />
     </box>
@@ -582,8 +607,9 @@ export function FullView(props: { deck: Deck; sessionID?: string }) {
   const [measured, setMeasured] = createSignal(0)
   onMount(() => setMeasured(rootRef?.width ?? context.renderer.terminalWidth ?? 120))
   const W = createMemo(() => Math.max(48, measured() || context.renderer.terminalWidth || 120))
-  const wide = createMemo(() => W() >= 110)
-  const colW = createMemo(() => (wide() ? Math.floor((W() - 2) / 2) : W()))
+  // The activity tab sizes its timeline off the full terminal height (same
+  // pattern as the diff/git/usage pages).
+  const H = createMemo(() => context.renderer.terminalHeight ?? 40)
 
   const sid = createMemo(() => props.sessionID ?? props.deck.fullSessionID())
 
@@ -603,41 +629,36 @@ export function FullView(props: { deck: Deck; sessionID?: string }) {
         {(id: string) => (
           <>
             <TitleRow deck={props.deck} sessionID={id} w={W()} />
-            <Show
-              when={wide()}
-              fallback={
-                <box flexDirection="column" width={colW()}>
-                  <MainPanel deck={props.deck} sessionID={id} w={colW()} />
-                  <AgentsArea deck={props.deck} sessionID={id} w={colW()} />
-                  <ErrorsPanel deck={props.deck} sessionID={id} w={colW()} />
-                  <GatePanel deck={props.deck} sessionID={id} w={colW()} />
-                  <StatsPanel deck={props.deck} sessionID={id} w={colW()} />
-                  <ChartsPanel deck={props.deck} sessionID={id} w={colW()} />
-                  <ToolsPanel deck={props.deck} sessionID={id} w={colW()} />
-                  <AgentTokensPanel deck={props.deck} sessionID={id} w={colW()} />
-                  <Timeline deck={props.deck} sessionID={id} w={colW()} rows={8} />
-                  <FilesPanel deck={props.deck} sessionID={id} w={colW()} />
-                </box>
-              }
-            >
-              <box flexDirection="row" gap={2} width={W()}>
-                <box flexDirection="column" width={colW()}>
-                  <MainPanel deck={props.deck} sessionID={id} w={colW()} />
-                  <StatsPanel deck={props.deck} sessionID={id} w={colW()} />
-                  <ChartsPanel deck={props.deck} sessionID={id} w={colW()} />
-                  <ErrorsPanel deck={props.deck} sessionID={id} w={colW()} />
-                  <GatePanel deck={props.deck} sessionID={id} w={colW()} />
-                  <Timeline deck={props.deck} sessionID={id} w={colW()} rows={12} />
-                </box>
-                <box flexDirection="column" width={colW()}>
-                  <AgentsArea deck={props.deck} sessionID={id} w={colW()} />
-                  <AgentTokensPanel deck={props.deck} sessionID={id} w={colW()} />
-                  <ToolsPanel deck={props.deck} sessionID={id} w={colW()} />
-                  <FilesPanel deck={props.deck} sessionID={id} w={colW()} />
-                </box>
-              </box>
-            </Show>
-            <KeyHints items={[["t", "cards/lanes"], ["f", "files"], ["l", "git log"], ["u", "usage"], ["q", "back"]]} w={W()} />
+            <box flexDirection="column" width={W()}>
+              <Switch>
+                <Match when={props.deck.fullTab() === "agents"}>
+                  <AgentsArea deck={props.deck} sessionID={id} w={W()} />
+                  <AgentTokensPanel deck={props.deck} sessionID={id} w={W()} />
+                  <ToolsPanel deck={props.deck} sessionID={id} w={W()} />
+                  <GatePanel deck={props.deck} sessionID={id} w={W()} />
+                </Match>
+                <Match when={props.deck.fullTab() === "activity"}>
+                  <Timeline deck={props.deck} sessionID={id} w={W()} rows={Math.max(8, H() - 12)} />
+                </Match>
+                <Match when={props.deck.fullTab() === "files"}>
+                  <FilesPanel deck={props.deck} sessionID={id} w={W()} />
+                  <text wrapMode="none" fg={theme().text.faint}>press f for the full diff page</text>
+                </Match>
+                <Match when={props.deck.fullTab() === "overview"}>
+                  <MainPanel deck={props.deck} sessionID={id} w={W()} />
+                  <StatsPanel deck={props.deck} sessionID={id} w={W()} />
+                  <ChartsPanel deck={props.deck} sessionID={id} w={W()} />
+                  <ErrorsPanel deck={props.deck} sessionID={id} w={W()} />
+                  <Show when={props.deck.pendingPermissions(id).length > 0}>
+                    <GatePanel deck={props.deck} sessionID={id} w={W()} />
+                  </Show>
+                </Match>
+              </Switch>
+            </box>
+            <KeyHints
+              items={[["1-4", "tabs"], ["t", "cards/lanes"], ["f", "files"], ["l", "log"], ["u", "usage"], ["q", "back"]]}
+              w={W()}
+            />
           </>
         )}
       </Show>

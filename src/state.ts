@@ -38,6 +38,9 @@ export type DiffKey =
  * resolve the row under the cursor without knowing the tree itself. */
 export type DiffRowInfo = { path: string; dir: boolean; fileIndex: number }
 
+/** Full-view dashboard tabs (the 1–4 keys / clickable tab row). */
+export type FullTab = "overview" | "agents" | "activity" | "files"
+
 export type PermRecord = {
   id: string
   sessionID: string
@@ -57,7 +60,12 @@ export function createDeck(context: Context) {
     // (storage.store would persist to disk — this widget is read-only and stateless by design.)
     // lanes: undefined = auto (cards while they fit, lanes past that).
     const [ui, setUi] = context.storage.memory("opendeck", {
-      initial: { collapsed: false, lanes: undefined as boolean | undefined, doneOpen: false },
+      initial: {
+        collapsed: false,
+        lanes: undefined as boolean | undefined,
+        doneOpen: false,
+        tab: "overview" as FullTab,
+      },
     })
     const [tick, setTick] = createSignal(0)
     const [now, setNow] = createSignal(Date.now())
@@ -68,6 +76,9 @@ export function createDeck(context: Context) {
     // session it was opened from, so close lands back where the user was.
     const [full, setFull] = createSignal(false)
     const [lastRoot, setLastRoot] = createSignal<string | undefined>(undefined)
+    // Active full-view dashboard tab. Signal for reactivity; mirrored into
+    // the memory store so the last tab survives hot reloads (like lanes).
+    const [fullTab, setFullTabRaw] = createSignal<FullTab>(ui.tab ?? "overview")
     // Diff page (plugin route "opendeck-diff"): open flag + raw selected file
     // index (the view clamps it to the loaded list). No animations there, so
     // the diff page never needs the ticker.
@@ -514,6 +525,14 @@ export function createDeck(context: Context) {
       toggleDone() {
         setUi((draft) => {
           draft.doneOpen = !(ui.doneOpen ?? false)
+        })
+      },
+      /** Active full-view dashboard tab (1–4 keys / tab-row clicks). */
+      fullTab,
+      setFullTab(tab: FullTab) {
+        setFullTabRaw(tab)
+        setUi((draft) => {
+          draft.tab = tab
         })
       },
       /** Whether the full-screen Opendeck route is currently shown. */
