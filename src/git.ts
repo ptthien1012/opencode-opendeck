@@ -388,7 +388,7 @@ export type GitFileDiff = {
 }
 
 export async function loadCommitFiles(cwd: string, hash: string): Promise<GitFileDiff[] | string> {
-  const statRes = await git(cwd, ["show", "--format=", "--numstat", "-z", hash])
+  const statRes = await git(cwd, ["show", "--format=", "--numstat", "-z", "--find-renames", hash])
   if (!statRes.ok) return statRes.error
   const stats = parseNumstatZ(statRes.out)
   const patchRes = await git(cwd, ["show", "--format=", "--patch", "--no-color", "--find-renames", hash])

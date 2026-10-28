@@ -212,6 +212,15 @@ export function createDeck(context: Context) {
         // router.current() is not documented as reactive; resync while ticking so
         // navigating away from the full view by other UI still settles the flag.
         if (full() !== isFullRoute()) setFull(isFullRoute())
+        try {
+          const route = context.ui.router.current()
+          const onDiff = route.type === "plugin" && route.name === "opendeck-diff"
+          const onGit = route.type === "plugin" && route.name === "opendeck-git"
+          if (diffOpen() !== onDiff) setDiffOpen(onDiff)
+          if (gitOpen() !== onGit) setGitOpen(onGit)
+        } catch {
+          // router unavailable this tick
+        }
         if (!keepAlive()) stopTicker()
       } catch {
         // a failing tick must never throw into the host's interval callback
@@ -644,10 +653,23 @@ export function createDeck(context: Context) {
           } else if (key === "close-parent") {
             const row = rows[cursor]
             if (row === undefined) return
-            const slash = row.path.lastIndexOf("/")
-            if (slash <= 0) return
-            const parent = row.path.slice(0, slash)
-            setDiffCollapsed((current) => new Set(current).add(parent))
+            // Compacted dirs ("a/b/c") make the literal parent path absent from
+            // the rows, so collapse the dir itself or the nearest dir row that
+            // is an ancestor of the cursor, and move the cursor onto it.
+            let target = row.dir ? cursor : -1
+            if (target < 0) {
+              for (let i = cursor - 1; i >= 0; i--) {
+                const candidate = rows[i]
+                if (candidate?.dir && row.path.startsWith(`${candidate.path}/`)) {
+                  target = i
+                  break
+                }
+              }
+            }
+            const dirRow = rows[target]
+            if (target < 0 || dirRow === undefined) return
+            setDiffCollapsed((current) => new Set(current).add(dirRow.path))
+            setDiffCursorRaw(target)
           }
           return
         }
@@ -752,6 +774,10 @@ export function createDeck(context: Context) {
         if (id) setLastRoot(id)
         try {
           context.ui.router.navigate({ type: "plugin", name: "opendeck-git", data: { sessionID: id } })
+          // settle the flags now in case router.current() is not reactive
+          // (the tick resync also covers it); diff first so modes never stack
+          setDiffOpen(false)
+          setGitOpen(true)
         } catch {
           // host without plugin routes: stay put
         }

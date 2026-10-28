@@ -101,7 +101,7 @@ export function GitView(props: { deck: Deck; sessionID?: string }) {
   const barW = 1
   // marker(1) + space(1) + graph + space + hash + space + [subject] + space + author + space + time
   const subjectW = createMemo(() =>
-    Math.max(8, W() - barW - 2 - graphW() - 1 - HASH_W - 1 - 1 - AUTHOR_W - 1 - TIME_W),
+    Math.max(1, W() - barW - 2 - graphW() - 1 - HASH_W - 1 - 1 - AUTHOR_W - 1 - TIME_W),
   )
 
   // Keep the selected commit row inside the window (only when selection moves).
