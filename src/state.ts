@@ -100,6 +100,13 @@ export function createDeck(context: Context) {
     const [gitPage, setGitPageRaw] = createSignal(1)
     const [gitTick, setGitTick] = createSignal(0)
     const [gitHash, setGitHashRaw] = createSignal<string | undefined>(undefined)
+    // Usage page (plugin route "opendeck-usage"): open flag, range, scope
+    // (all projects or the current one), model list scroll, reload tick.
+    const [usageOpen, setUsageOpen] = createSignal(false)
+    const [usageRange, setUsageRangeRaw] = createSignal<"30d" | "90d" | "1y">("30d")
+    const [usageScope, setUsageScope] = createSignal<"all" | "project">("all")
+    const [usageTop, setUsageTopRaw] = createSignal(0)
+    const [usageTick, setUsageTick] = createSignal(0)
     // Flattened tree rows published by the diff view so diffKey can resolve
     // the row under the cursor without owning the tree.
     const [diffRows, setDiffRowsRaw] = createSignal<readonly DiffRowInfo[]>([])
@@ -218,6 +225,8 @@ export function createDeck(context: Context) {
           const onGit = route.type === "plugin" && route.name === "opendeck-git"
           if (diffOpen() !== onDiff) setDiffOpen(onDiff)
           if (gitOpen() !== onGit) setGitOpen(onGit)
+          const onUsage = route.type === "plugin" && route.name === "opendeck-usage"
+          if (usageOpen() !== onUsage) setUsageOpen(onUsage)
         } catch {
           // router unavailable this tick
         }
@@ -286,6 +295,8 @@ export function createDeck(context: Context) {
       popDiffMode = undefined
       popGitMode?.()
       popGitMode = undefined
+      popUsageMode?.()
+      popUsageMode = undefined
       stopTicker()
       offAsked()
       offReplied()
@@ -323,6 +334,17 @@ export function createDeck(context: Context) {
       } else {
         popGitMode?.()
         popGitMode = undefined
+      }
+    })
+
+    // And for the usage page.
+    let popUsageMode: (() => void) | undefined
+    createEffect(() => {
+      if (usageOpen()) {
+        if (!popUsageMode) popUsageMode = context.keymap.mode.push("opendeck-usage")
+      } else {
+        popUsageMode?.()
+        popUsageMode = undefined
       }
     })
 
@@ -366,6 +388,7 @@ export function createDeck(context: Context) {
       setFull(route.type === "plugin" && route.name === "opendeck")
       setDiffOpen(route.type === "plugin" && route.name === "opendeck-diff")
       setGitOpen(route.type === "plugin" && route.name === "opendeck-git")
+      setUsageOpen(route.type === "plugin" && route.name === "opendeck-usage")
       if (route.type === "session") {
         let root = ""
         try {
@@ -781,6 +804,45 @@ export function createDeck(context: Context) {
         } catch {
           // host without plugin routes: stay put
         }
+      },
+      /** Usage page open flag (follows the route). */
+      usageOpen,
+      usageRange,
+      setUsageRange(range: "30d" | "90d" | "1y") {
+        setUsageRangeRaw(range)
+        setUsageTopRaw(0)
+      },
+      usageScope,
+      toggleUsageScope() {
+        setUsageScope((current) => (current === "all" ? "project" : "all"))
+        setUsageTopRaw(0)
+      },
+      usageTop,
+      setUsageTop(value: number) {
+        setUsageTopRaw(Math.max(0, Math.floor(value)))
+      },
+      usageScrollBy(delta: number) {
+        setUsageTopRaw((current) => Math.max(0, current + Math.trunc(delta)))
+      },
+      usageTick,
+      usageReload() {
+        setUsageTick((value) => value + 1)
+      },
+      /** Open the usage page (token/cache/model stats over 30d/90d/1y). */
+      openUsage(sessionID?: string) {
+        const id = sessionID ?? lastRoot() ?? rootSessionID()
+        if (id) setLastRoot(id)
+        try {
+          context.ui.router.navigate({ type: "plugin", name: "opendeck-usage", data: { sessionID: id } })
+          setUsageOpen(true)
+        } catch {
+          // host without plugin routes: stay put
+        }
+      },
+      /** Back from the usage page to the Opendeck full view. */
+      closeUsage() {
+        setUsageOpen(false)
+        deck.openFullview()
       },
       /** Back from the git log page to the Opendeck full view. */
       closeGit() {

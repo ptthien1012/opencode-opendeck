@@ -4,6 +4,7 @@ import { ErrorBoundary } from "solid-js"
 import { maskSecrets, truncate } from "./format.js"
 import { DiffView } from "./diffview.js"
 import { GitView } from "./gitview.js"
+import { UsageView } from "./usageview.js"
 import { FullView } from "./fullview.js"
 import { Sidebar } from "./sidebar.js"
 import { createDeck } from "./state.js"
@@ -90,6 +91,15 @@ export default Plugin.define({
           bind: "l",
           enabled: () => deck.isFullRoute(),
           run: () => deck.openGit(),
+        },
+        {
+          id: "opendeck.usage",
+          title: "Opendeck: usage",
+          description: "Token, cache, model and tool usage over 30d / 90d / 1y",
+          group: "Opendeck",
+          bind: "u",
+          enabled: () => deck.isFullRoute(),
+          run: () => deck.openUsage(),
         },
         {
           bind: "q",
@@ -274,6 +284,33 @@ export default Plugin.define({
       ],
     }))
 
+    // Usage page keys: scoped to the "opendeck-usage" keymap mode.
+    const usageOn = () => deck.usageOpen()
+    context.keymap.layer(() => ({
+      mode: "opendeck-usage",
+      commands: [
+        {
+          id: "opendeck.usage.close",
+          title: "Opendeck: back from usage",
+          description: "Return from the usage page to the Opendeck full view",
+          group: "Opendeck",
+          bind: "escape",
+          enabled: usageOn,
+          run: () => deck.closeUsage(),
+        },
+        { bind: "q", enabled: usageOn, run: () => deck.closeUsage() },
+        { bind: "1", enabled: usageOn, run: () => deck.setUsageRange("30d") },
+        { bind: "2", enabled: usageOn, run: () => deck.setUsageRange("90d") },
+        { bind: "3", enabled: usageOn, run: () => deck.setUsageRange("1y") },
+        { bind: "p", enabled: usageOn, run: () => deck.toggleUsageScope() },
+        { bind: "j", enabled: usageOn, run: () => deck.usageScrollBy(1) },
+        { bind: "down", enabled: usageOn, run: () => deck.usageScrollBy(1) },
+        { bind: "k", enabled: usageOn, run: () => deck.usageScrollBy(-1) },
+        { bind: "up", enabled: usageOn, run: () => deck.usageScrollBy(-1) },
+        { bind: "r", enabled: usageOn, run: () => deck.usageReload() },
+      ],
+    }))
+
     // Git log page keys: scoped to the "opendeck-git" keymap mode, pushed
     // only while the git route is current. One key per command object.
     const gitOn = () => deck.gitOpen()
@@ -340,6 +377,16 @@ export default Plugin.define({
       ),
     })
 
+    // Usage page: fourth plugin route, same crash guard.
+    const unregisterUsage = context.ui.router.register({
+      name: "opendeck-usage",
+      render: ({ data }) => (
+        <ErrorBoundary fallback={(err: unknown) => <CrashLine err={err} />}>
+          <UsageView deck={deck} sessionID={typeof data?.sessionID === "string" ? data.sessionID : undefined} />
+        </ErrorBoundary>
+      ),
+    })
+
     const remove = context.ui.slot({
       append: "sidebar.content",
       render: ({ sessionID }) => (
@@ -353,6 +400,7 @@ export default Plugin.define({
       unregister()
       unregisterDiff()
       unregisterGit()
+      unregisterUsage()
       remove()
       dispose()
     }
