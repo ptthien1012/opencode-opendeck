@@ -1,0 +1,45 @@
+{
+  "name": "opencode-flightdeck",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "OpenCode TUI plugin — live session dashboard in the sidebar (context, cost, agents, activity, permissions)",
+  "author": "opencode-flightdeck contributors",
+  "license": "MIT",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "tui",
+    "sidebar",
+    "dashboard",
+    "flightdeck"
+  ],
+  "engines": {
+    "opencode": ">=2.0.0"
+  },
+  "exports": {
+    "./tui": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "tui.js"
+  ],
+  "scripts": {
+    "build": "bun run script/build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opencode/plugin": "^2.0.15",
+    "solid-js": "^1.9.12",
+    "@opentui/solid": "^0.5.1"
+  },
+  "peerDependencies": {
+    "solid-js": ">=1.9.0",
+    "@opentui/core": ">=0.5.10",
+    "@opentui/solid": ">=0.5.10"
+  },
+  "devDependencies": {
+    "@opencode/client": "^2.0.15",
+    "@opencode/theme": "2.2.0",
+    "typescript": "^5.6.0"
+  }
+}

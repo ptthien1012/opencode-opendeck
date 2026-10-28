@@ -1,0 +1,589 @@
+/** @jsxImportSource @opentui/solid */
+// Smart compact sidebar (Part 1): Active agents with live rows, a Done
+// section collapsed to one header line, activity collapsed to unique rows,
+// an MCP section with per-server call counts, and a permission strip —
+// every section hidden when it has nothing to say.
+// All rows are truncated to the measured slot width and never wrap.
+
+import type { SessionInfo } from "@opencode/client"
+import { usePlugin } from "@opencode/plugin/tui"
+import type { BoxRenderable } from "@opentui/core"
+import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js"
+import { mixColor, spinner } from "./anim.js"
+import { formatBar, formatElapsed, formatTokens, maskSecrets, shortModel, toolSummary, truncate } from "./format.js"
+import type { Deck } from "./state.js"
+import {
+  agentDesc,
+  agentName,
+  collectToolParts,
+  collapseRows,
+  doneGlyph,
+  openSessionSafe,
+  sessionTokens,
+  toolCallCounts,
+  useAgentState,
+  useContextStats,
+  usePermRecords,
+} from "./shared.js"
+
+const DONE_LIMIT = 12
+const ACTIVITY_LIMIT = 6
+const PERMISSION_LIMIT = 4
+const MCP_LIMIT = 8
+
+type Width = () => number
+
+/** --- Context & tokens -------------------------------------------------- */
+
+function ContextLines(props: { deck: Deck; sessionID: string; w: Width }) {
+  const context = usePlugin()
+  const theme = () => context.theme
+
+  const { stats, ratio } = useContextStats(props.deck, () => props.sessionID)
+  const barColor = createMemo(() => {
+    const value = ratio()
+    if (value === undefined) return theme().hue.accent[200]
+    if (value > 0.85) return theme().text.feedback.error.base
+    if (value >= 0.7) return theme().text.feedback.warning.base
+    return theme().hue.accent[200]
+  })
+  const tokens = createMemo(() => sessionTokens(context, props.sessionID))
+  const mainRunning = createMemo(() => context.data.session.status(props.sessionID) === "running")
+  const barW = createMemo(() => (props.w() >= 34 ? 10 : 6))
+
+  return (
+    <box>
+      <box flexDirection="row" gap={1} width="100%">
+        <text wrapMode="none" fg={mainRunning() ? theme().hue.accent[200] : theme().text.muted}>
+          {mainRunning() ? `${spinner(props.deck.tick())} ctx` : "ctx"}
+        </text>
+        <Show when={stats()} keyed fallback={<text wrapMode="none" fg={theme().text.muted}>· no usage yet</text>}>
+          {(s: NonNullable<ReturnType<typeof stats>>) => (
+            <>
+              <Show when={ratio() !== undefined}>
+                <text wrapMode="none" fg={barColor()}>
+                  {formatBar(ratio() ?? 0, barW())}
+                </text>
+                <text wrapMode="none" fg={barColor()}>
+                  {Math.round((ratio() ?? 0) * 100)}%
+                </text>
+              </Show>
+              <Show when={props.w() >= 30}>
+                <text wrapMode="none" fg={theme().text.muted}>
+                  {formatTokens(s.used)}/{s.limit ? formatTokens(s.limit) : "?"}
+                </text>
+              </Show>
+            </>
+          )}
+        </Show>
+      </box>
+      <box flexDirection="row" justifyContent="space-between" width="100%">
+        <text wrapMode="none" fg={theme().text.base}>
+          {truncate(`in ${formatTokens(tokens().input)} · out ${formatTokens(tokens().output)}`, props.w() - 14)}
+        </text>
+        <Show when={stats()?.modelID}>
+          <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>
+            {shortModel(stats()?.modelID, 12)}
+          </text>
+        </Show>
+      </box>
+    </box>
+  )
+}
+
+/** --- MCP servers -------------------------------------------------------- */
+
+/**
+ * One row per MCP server with its call count across the whole family
+ * (main + subagents). Max 8 servers shown, the rest collapsed into a
+ * `+K more` line; hidden entirely when no MCP calls exist.
+ */
+function McpSection(props: { deck: Deck; sessionID: string; w: Width }) {
+  const context = usePlugin()
+  const theme = () => context.theme
+
+  const rows = createMemo(() =>
+    toolCallCounts(collectToolParts(context, props.deck.familyIds(props.sessionID))).filter((row) => row.mcp),
+  )
+  const total = createMemo(() => rows().reduce((sum, row) => sum + row.count, 0))
+
+  return (
+    <Show when={rows().length > 0}>
+      <box marginTop={1}>
+        <text wrapMode="none" fg={theme().text.base}>
+          <b>MCP ({total()} calls)</b>
+        </text>
+        <For each={rows().slice(0, MCP_LIMIT)}>
+          {(row) => {
+            const label = createMemo(() => truncate(row.key, Math.max(6, props.w() - 6)))
+            return (
+              <box flexDirection="row" justifyContent="space-between" width="100%">
+                <text wrapMode="none" fg={theme().hue.accent[200]}>
+                  {label()}
+                </text>
+                <text wrapMode="none" fg={theme().text.muted} flexShrink={0}>
+                  ×{row.count}
+                </text>
+              </box>
+            )
+          }}
+        </For>
+        <Show when={rows().length > MCP_LIMIT}>
+          <text wrapMode="none" fg={theme().text.faint}>
+            {"  "}+{rows().length - MCP_LIMIT} more
+          </text>
+        </Show>
+      </box>
+    </Show>
+  )
+}
+
+/** --- Agents: Active + Done --------------------------------------------- */
+
+function ActiveRow(props: {
+  deck: Deck
+  session: SessionInfo
+  w: Width
+  pending: { action: string; resources: string[] } | undefined
+}) {
+  const context = usePlugin()
+  const theme = () => context.theme
+  const agent = useAgentState(props.deck, props.session)
+
+  const clock = createMemo(() => (agent.elapsedMs() !== undefined ? formatElapsed(agent.elapsedMs()!) : "-"))
+  const title = createMemo(() => {
+    const left = `${agent.indicator()} ${agentName(props.session)} · ${shortModel(agent.model()?.id, 10)}`
+    return truncate(left, Math.max(8, props.w() - clock().length - 1))
+  })
+  const ctxLabel = createMemo(() => {
+    const pct = agent.ctxRatio()
+    if (pct !== undefined) return `${Math.round(pct * 100)}%`
+    const ctx = agent.ctx()
+    return ctx !== undefined ? formatTokens(ctx) : "-"
+  })
+  const tokenLabel = createMemo(() => {
+    const total = agent.tokens()
+    return `↑${formatTokens(total.input)} ↓${formatTokens(total.output)}`
+  })
+  const detail = createMemo(() => {
+    const pend = props.pending
+    const base = pend
+      ? `! ${maskSecrets(`${pend.action} ${pend.resources[0] ?? ""}`.trim())}`
+      : agent.lastTool()
+        ? toolSummary(agent.lastTool()!, 60)
+        : agent.status()
+    const rightW = ctxLabel().length + tokenLabel().length + 1
+    return truncate(base, Math.max(6, props.w() - rightW - 3))
+  })
+
+  return (
+    <box onMouseDown={() => openSessionSafe(context, props.session.id)}>
+      <box flexDirection="row" justifyContent="space-between" width="100%">
+        <text wrapMode="none" fg={agent.statusColor()}>
+          {title()}
+        </text>
+        <text wrapMode="none" fg={theme().text.muted} flexShrink={0}>
+          {clock()}
+        </text>
+      </box>
+      <box flexDirection="row" justifyContent="space-between" width="100%">
+        <text wrapMode="none" fg={props.pending ? theme().text.feedback.warning.base : theme().text.muted}>
+          {"  "}
+          {detail()}
+        </text>
+        <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>
+          {ctxLabel()} {tokenLabel()}
+        </text>
+      </box>
+    </box>
+  )
+}
+
+function DoneRow(props: { deck: Deck; session: SessionInfo; w: Width }) {
+  const context = usePlugin()
+  const theme = () => context.theme
+  const state = createMemo(() => doneGlyph(props.session))
+  const duration = createMemo(() => {
+    const run = props.deck.run(props.session.id)
+    if (run) return formatElapsed((run.end ?? props.deck.now()) - run.start)
+    const span = props.session.time.updated - props.session.time.created
+    return span > 0 ? formatElapsed(span) : "-"
+  })
+  const tokens = createMemo(() => sessionTokens(context, props.session.id))
+  const right = createMemo(() => `${duration()} ↑${formatTokens(tokens().input)} ↓${formatTokens(tokens().output)}`)
+
+  return (
+    <box
+      flexDirection="row"
+      justifyContent="space-between"
+      width="100%"
+      onMouseDown={() => openSessionSafe(context, props.session.id)}
+    >
+      <text wrapMode="none" fg={state().failed ? theme().text.feedback.error.base : theme().text.muted}>
+        {truncate(`${state().glyph} ${agentName(props.session)}`, Math.max(6, props.w() - right().length - 1))}
+      </text>
+      <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>
+        {right()}
+      </text>
+    </box>
+  )
+}
+
+/**
+ * Active: running agents, agents waiting on a permission reply, and agents
+ * finished within the last ~30s. Done: everything else, collapsed to one
+ * header line (`▸ Done 5  ✓4 ✗1`) until clicked. Both hide when empty.
+ */
+function AgentsArea(props: { deck: Deck; sessionID: string; w: Width }) {
+  const context = usePlugin()
+  const theme = () => context.theme
+
+  const pendingByAgent = createMemo(() => {
+    const map = new Map<string, { action: string; resources: string[] }>()
+    for (const request of props.deck.pendingPermissions(props.sessionID)) {
+      if (request.sessionID !== props.sessionID && !map.has(request.sessionID)) map.set(request.sessionID, request)
+    }
+    return map
+  })
+
+  const partition = createMemo(() => {
+    const now = props.deck.now()
+    const active: SessionInfo[] = []
+    const done: SessionInfo[] = []
+    for (const child of props.deck.children(props.sessionID)) {
+      const running = context.data.session.status(child.id) === "running"
+      const run = props.deck.run(child.id)
+      const end = run?.end ?? (child.outcome !== undefined ? child.time.updated : undefined)
+      const fresh = end !== undefined ? now - end < 30_000 : now - child.time.created < 30_000
+      if (running || pendingByAgent().has(child.id) || fresh) active.push(child)
+      else done.push(child)
+    }
+    const startOf = (s: SessionInfo) => props.deck.run(s.id)?.start ?? s.time.created
+    const endOf = (s: SessionInfo) => props.deck.run(s.id)?.end ?? s.time.updated
+    active.sort((a, b) => {
+      const pend = Number(pendingByAgent().has(b.id)) - Number(pendingByAgent().has(a.id))
+      if (pend !== 0) return pend
+      const runA = context.data.session.status(a.id) === "running"
+      const runB = context.data.session.status(b.id) === "running"
+      if (runA !== runB) return runA ? -1 : 1
+      return runA ? startOf(a) - startOf(b) : endOf(b) - endOf(a)
+    })
+    done.sort((a, b) => endOf(b) - endOf(a))
+    return { active, done }
+  })
+
+  const doneCounts = createMemo(() => {
+    let ok = 0
+    let failed = 0
+    for (const child of partition().done) {
+      if (doneGlyph(child).failed) failed++
+      else ok++
+    }
+    return { ok, failed }
+  })
+
+  // Restore context/elapsed for subagents that predate this TUI.
+  createEffect(() => {
+    for (const child of props.deck.children(props.sessionID)) {
+      if (context.data.session.status(child.id) !== "running") {
+        if ((context.data.session.message.list(child.id) ?? []).length === 0) props.deck.hydrateMessages(child.id)
+      }
+    }
+  })
+
+  return (
+    <>
+      <Show when={partition().active.length > 0}>
+        <box marginTop={1}>
+          <text wrapMode="none" fg={theme().text.base}>
+            <b>Active ({partition().active.length})</b>
+          </text>
+          <For each={partition().active}>
+            {(child) => <ActiveRow deck={props.deck} session={child} w={props.w} pending={pendingByAgent().get(child.id)} />}
+          </For>
+        </box>
+      </Show>
+      <Show when={partition().done.length > 0}>
+        <box marginTop={partition().active.length > 0 ? 0 : 1}>
+          <box flexDirection="row" gap={1} onMouseDown={() => props.deck.toggleDone()}>
+            <text wrapMode="none" fg={theme().text.base}>
+              {props.deck.doneOpen() ? "▾" : "▸"} Done {partition().done.length}
+            </text>
+            <text wrapMode="none" fg={theme().text.feedback.success.base}>
+              ✓{doneCounts().ok}
+            </text>
+            <Show when={doneCounts().failed > 0}>
+              <text wrapMode="none" fg={theme().text.feedback.error.base}>
+                ✗{doneCounts().failed}
+              </text>
+            </Show>
+          </box>
+          <Show when={props.deck.doneOpen()}>
+            <For each={partition().done.slice(0, DONE_LIMIT)}>
+              {(child) => <DoneRow deck={props.deck} session={child} w={props.w} />}
+            </For>
+            <Show when={partition().done.length > DONE_LIMIT}>
+              <text wrapMode="none" fg={theme().text.muted}>
+                {"  "}+{partition().done.length - DONE_LIMIT} more
+              </text>
+            </Show>
+          </Show>
+        </box>
+      </Show>
+    </>
+  )
+}
+
+/** --- Activity timeline ------------------------------------------------- */
+
+function ActivitySection(props: { deck: Deck; sessionID: string; w: Width; active: () => SessionInfo[] }) {
+  const context = usePlugin()
+  const theme = () => context.theme
+
+  // Only the main session + currently active agents, newest first, with
+  // consecutive identical rows collapsed into one `×n` row. Max 6 shown.
+  const rows = createMemo(() => {
+    const live = props.active()
+    const ids = [props.sessionID, ...live.map((session) => session.id)]
+    const items = collectToolParts(context, ids).map((entry) => ({
+      ...entry,
+      who:
+        entry.sessionID === props.sessionID
+          ? undefined
+          : agentName(
+              live.find((session) => session.id === entry.sessionID) ??
+                context.data.session.get(entry.sessionID) ??
+                {},
+              8,
+            ),
+      summary: toolSummary(entry.part, 80),
+    }))
+    return collapseRows(items, (item) => `${item.who ?? "main"}|${item.part.name}|${item.summary}`).slice(0, ACTIVITY_LIMIT)
+  })
+
+  // Flash newly appeared rows (accent → normal over ~1.5s). The first pass
+  // only primes the seen set so attaching the TUI doesn't flash history.
+  const seenActivity = new Set<string>()
+  let activityPrimed = false
+  createEffect(() => {
+    for (const row of rows()) {
+      if (seenActivity.has(row.item.part.id)) continue
+      seenActivity.add(row.item.part.id)
+      if (activityPrimed) props.deck.flash(row.item.part.id)
+    }
+    activityPrimed = true
+  })
+
+  return (
+    <Show when={rows().length > 0}>
+      <box marginTop={1}>
+        <text wrapMode="none" fg={theme().text.base}>
+          <b>Activity</b>
+        </text>
+        <For each={rows()}>
+          {(row) => {
+            const part = row.item.part
+            const running = part.state.status === "running" || part.state.status === "streaming"
+            const iconGlyph = createMemo(() => {
+              if (running) return spinner(props.deck.tick())
+              return part.state.status === "error" ? "✗" : "✓"
+            })
+            const iconColor = createMemo(() => {
+              if (running) return theme().text.feedback.warning.base
+              return part.state.status === "error" ? theme().text.feedback.error.base : theme().text.muted
+            })
+            const label = createMemo(() => {
+              const prefix = row.item.who ? `[${row.item.who}] ` : ""
+              const suffix = row.count > 1 ? ` ×${row.count}` : ""
+              return truncate(`${prefix}${row.item.summary}${suffix}`, Math.max(6, props.w() - 2))
+            })
+            const labelColor = createMemo(() => {
+              const normal = part.state.status === "completed" ? theme().text.muted : theme().text.base
+              const level = props.deck.flashLevel(part.id)
+              if (level <= 0) return normal
+              return mixColor(theme().hue.accent[200], normal, 1 - level)
+            })
+            return (
+              <box flexDirection="row" gap={1}>
+                <text wrapMode="none" fg={iconColor()}>
+                  {iconGlyph()}
+                </text>
+                <text wrapMode="none" fg={labelColor()}>
+                  {label()}
+                </text>
+              </box>
+            )
+          }}
+        </For>
+      </box>
+    </Show>
+  )
+}
+
+/** --- Permission gate --------------------------------------------------- */
+
+function PermissionsSection(props: { deck: Deck; sessionID: string; w: Width }) {
+  const context = usePlugin()
+  const theme = () => context.theme
+
+  // Ask the host store once per family session so pending requests made before
+  // this TUI attached still show up.
+  createEffect(() => {
+    for (const id of props.deck.familyIds(props.sessionID)) props.deck.hydratePermissions(id)
+  })
+
+  const { records, pending } = usePermRecords(props.deck, () => props.sessionID)
+  const shown = createMemo(() => [...records()].reverse().slice(0, PERMISSION_LIMIT))
+  // Pending requests pulse between warning base/muted (~0.5s per phase).
+  const pulse = createMemo(() => Math.floor(props.deck.tick() / 4) % 2 === 0)
+
+  return (
+    <Show when={records().length > 0}>
+      <box marginTop={1}>
+        <box flexDirection="row" gap={1}>
+          <text wrapMode="none" fg={theme().text.base}>
+            <b>Permissions</b>
+          </text>
+          <Show when={pending().length > 0}>
+            <text wrapMode="none" fg={pulse() ? theme().text.feedback.warning.base : theme().text.feedback.warning.muted}>
+              ({pending().length} pending)
+            </text>
+          </Show>
+        </box>
+        <For each={shown()}>
+          {(record) => {
+            const glyph = record.pending ? "!" : record.reply === "reject" ? "✗" : "✓"
+            const normalColor = record.pending
+              ? theme().text.feedback.warning.base
+              : record.reply === "reject"
+                ? theme().text.feedback.error.base
+                : theme().text.muted
+            const glyphColor = createMemo(() =>
+              record.pending && !pulse() ? theme().text.feedback.warning.muted : normalColor,
+            )
+            const label = createMemo(() => {
+              const resource = record.resources[0] ?? record.message ?? ""
+              return truncate(maskSecrets(`${record.action}${resource ? ` ${resource}` : ""}`), Math.max(6, props.w() - 2))
+            })
+            const labelColor = createMemo(() => {
+              const normal = record.pending ? theme().text.base : theme().text.muted
+              const level = props.deck.flashLevel(record.id)
+              if (level <= 0) return normal
+              return mixColor(theme().hue.accent[200], normal, 1 - level)
+            })
+            return (
+              <box flexDirection="row" gap={1}>
+                <text wrapMode="none" fg={glyphColor()}>
+                  {glyph}
+                </text>
+                <text wrapMode="none" fg={labelColor()}>
+                  {label()}
+                </text>
+              </box>
+            )
+          }}
+        </For>
+      </box>
+    </Show>
+  )
+}
+
+/** --- Root -------------------------------------------------------------- */
+
+export function Sidebar(props: { deck: Deck; sessionID: string }) {
+  const context = usePlugin()
+  const theme = () => context.theme
+
+  // The sidebar slot publishes no width, so measure our own root box and
+  // truncate every row to fit. Falls back to a sane narrow default pre-layout.
+  let rootRef: BoxRenderable | undefined
+  const [measured, setMeasured] = createSignal(0)
+  onMount(() => setMeasured(rootRef?.width ?? 0))
+  const w = createMemo(() => Math.max(20, measured() || 30))
+
+  const children = createMemo(() => props.deck.children(props.sessionID))
+  const activeAgents = createMemo(() => {
+    // re-derives the same "active" set AgentsArea shows, for Activity scoping
+    const now = props.deck.now()
+    const pending = new Set(
+      props.deck.pendingPermissions(props.sessionID).map((request) => request.sessionID),
+    )
+    return children().filter((child) => {
+      if (context.data.session.status(child.id) === "running") return true
+      if (pending.has(child.id)) return true
+      const run = props.deck.run(child.id)
+      const end = run?.end ?? (child.outcome !== undefined ? child.time.updated : undefined)
+      return end !== undefined ? now - end < 30_000 : now - child.time.created < 30_000
+    })
+  })
+
+  const mainRunning = createMemo(() => context.data.session.status(props.sessionID) === "running")
+  const pendingCount = createMemo(() => props.deck.pendingPermissions(props.sessionID).length)
+  const hasActivity = createMemo(() =>
+    (context.data.session.message.list(props.sessionID) ?? []).some(
+      (msg) => msg.type === "assistant" && msg.content.some((part) => part.type === "tool"),
+    ),
+  )
+  // Nothing happening at all → just the context line plus a dim idle hint.
+  const idle = createMemo(
+    () =>
+      !mainRunning() &&
+      children().length === 0 &&
+      activeAgents().length === 0 &&
+      pendingCount() === 0 &&
+      !hasActivity(),
+  )
+
+  const shortcut = createMemo(() => {
+    try {
+      return context.keymap.shortcuts("flightdeck.open")[0] ?? ""
+    } catch {
+      return ""
+    }
+  })
+
+  return (
+    <box
+      width="100%"
+      marginBottom={1}
+      ref={(r: BoxRenderable) => {
+        rootRef = r
+      }}
+      onSizeChange={() => {
+        const next = rootRef?.width ?? 0
+        if (next > 0 && next !== measured()) setMeasured(next)
+      }}
+    >
+      <box flexDirection="row" gap={1} onMouseDown={() => props.deck.toggleCollapsed()}>
+        <text wrapMode="none" fg={theme().text.base}>
+          {props.deck.collapsed() ? "▶" : "▼"}
+        </text>
+        <text wrapMode="none" fg={theme().text.base}>
+          <b>Flightdeck</b>
+        </text>
+      </box>
+      <Show when={!props.deck.collapsed()}>
+        <ContextLines deck={props.deck} sessionID={props.sessionID} w={w} />
+        <Show when={idle()}>
+          <text wrapMode="none" fg={theme().text.faint}>
+            {"  "}· idle
+          </text>
+        </Show>
+        <McpSection deck={props.deck} sessionID={props.sessionID} w={w} />
+        <AgentsArea deck={props.deck} sessionID={props.sessionID} w={w} />
+        <ActivitySection deck={props.deck} sessionID={props.sessionID} w={w} active={activeAgents} />
+        <PermissionsSection deck={props.deck} sessionID={props.sessionID} w={w} />
+        <box flexDirection="row" gap={1} marginTop={1} onMouseDown={() => props.deck.openFullview()}>
+          <text wrapMode="none" fg={theme().hue.interactive[200]}>
+            ⤢ open Flightdeck
+          </text>
+          <Show when={w() >= 32}>
+            <text wrapMode="none" fg={theme().text.faint}>
+              {truncate(`/flightdeck${shortcut() ? ` · ${shortcut()}` : ""}`, Math.max(0, w() - 17))}
+            </text>
+          </Show>
+        </box>
+      </Show>
+    </box>
+  )
+}
