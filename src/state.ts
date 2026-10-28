@@ -36,6 +36,10 @@ export function createDeck(context: Context) {
     // session it was opened from, so close lands back where the user was.
     const [full, setFull] = createSignal(false)
     const [lastRoot, setLastRoot] = createSignal<string | undefined>(undefined)
+    // Bounce-back: root session to re-open the full view on, set when the
+    // user dives into a subagent straight from the full view. The sidebar
+    // shows a "back to Opendeck" link while this is armed.
+    const [returnTo, setReturnTo] = createSignal<string | undefined>(undefined)
 
     const hydratedMessages = new Set<string>()
     const hydratedPerms = new Set<string>()
@@ -230,6 +234,10 @@ export function createDeck(context: Context) {
     // Follow the host route: keep the full-view flag honest (instant when the
     // router is reactive; the ticker's per-tick resync is the fallback) and
     // remember the last open root session so closeFullview() lands back there.
+    // Bounce-back: opening a subagent straight from the full view arms
+    // returnTo with its root session; once the user lands back on that root,
+    // the full view re-opens itself (deck.returnPending feeds the sidebar).
+    let prevRoute: ReturnType<typeof context.ui.router.current> | undefined
     createEffect(() => {
       let route: ReturnType<typeof context.ui.router.current> | undefined
       try {
@@ -237,15 +245,47 @@ export function createDeck(context: Context) {
       } catch {
         return
       }
+      const fromFullview = prevRoute !== undefined && prevRoute.type === "plugin" && prevRoute.name === "opendeck"
       setFull(route.type === "plugin" && route.name === "opendeck")
       if (route.type === "session") {
+        let root = ""
         try {
-          const root = context.data.session.root(route.sessionID)
-          setLastRoot(root || route.sessionID)
+          root = context.data.session.root(route.sessionID)
         } catch {
-          setLastRoot(route.sessionID)
+          // unknown session id — the route's own id is the fallback below
         }
+        setLastRoot(root || route.sessionID)
+        if (fromFullview && context.data.session.get(route.sessionID)?.parentID !== undefined) {
+          // Dived into a subagent from the full view: arm the trip back to
+          // the root (lastRoot already holds it), never to the child itself.
+          const target = lastRoot() ?? root
+          if (target && target !== route.sessionID) setReturnTo(target)
+        }
+        const pending = returnTo()
+        if (pending !== undefined) {
+          if (route.sessionID === pending) {
+            // Back on the root: clear the trip FIRST so the re-open below
+            // can never re-arm it (this is the loop guard), then navigate
+            // out of band — never synchronously inside the effect.
+            setReturnTo(undefined)
+            queueMicrotask(() => {
+              if (!cancelled) deck.openFullview()
+            })
+          } else {
+            let belongs = false
+            try {
+              belongs = context.data.session.root(route.sessionID) === pending
+            } catch {
+              belongs = false
+            }
+            // Waiting only makes sense inside the pending root's family.
+            if (!belongs) setReturnTo(undefined)
+          }
+        }
+      } else if (route.type === "home") {
+        if (returnTo() !== undefined) setReturnTo(undefined)
       }
+      prevRoute = route
     })
 
     // Track run start/end per session so agent rows can show live elapsed time.
@@ -337,6 +377,10 @@ export function createDeck(context: Context) {
       /** Whether the full-screen Opendeck route is currently shown. */
       fullOpen: full,
       isFullRoute,
+      /** True while a bounce-back to the full view is armed. */
+      returnPending(): boolean {
+        return returnTo() !== undefined
+      },
       /** Session the full view renders: the one it was opened from, else current. */
       fullSessionID(): string | undefined {
         return lastRoot() ?? rootSessionID()
@@ -344,6 +388,8 @@ export function createDeck(context: Context) {
       openFullview() {
         const id = rootSessionID()
         if (id) setLastRoot(id)
+        // Any explicit open satisfies (or replaces) a pending bounce-back.
+        setReturnTo(undefined)
         setFull(true)
         ensureTicker()
         try {

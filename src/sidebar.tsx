@@ -593,6 +593,13 @@ export function Sidebar(props: { deck: Deck; sessionID: string }) {
         <AgentsArea deck={props.deck} sessionID={props.sessionID} w={w} />
         <ActivitySection deck={props.deck} sessionID={props.sessionID} w={w} active={activeAgents} />
         <PermissionsSection deck={props.deck} sessionID={props.sessionID} w={w} />
+        <Show when={props.deck.returnPending()}>
+          <box marginTop={1} onMouseDown={() => props.deck.openFullview()}>
+            <text wrapMode="none" fg={theme().hue.accent[200]}>
+              ⤺ back to Opendeck
+            </text>
+          </box>
+        </Show>
         <box flexDirection="row" gap={1} marginTop={1} onMouseDown={() => props.deck.openFullview()}>
           <text wrapMode="none" fg={theme().hue.interactive[200]}>
             ⤢ open Opendeck
