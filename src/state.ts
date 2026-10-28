@@ -8,6 +8,36 @@ export type Run = { start: number; end?: number }
 
 export type DiffJumpTarget = "next-hunk" | "prev-hunk" | "top" | "bottom"
 
+/** Diff page source: session tool-call edits, or the git working tree. */
+export type DiffSource = "edits" | "git"
+
+/** Which diff pane owns the movement keys. */
+export type DiffFocus = "tree" | "patch"
+
+/**
+ * Focus-aware diff keys, routed by the deck's diffKey(): in "tree" focus
+ * movement drives the cursor and open/close-parent work the tree; in "patch"
+ * focus they scroll the patch (open/close-parent are no-ops there).
+ */
+export type DiffKey =
+  | "up"
+  | "down"
+  | "open"
+  | "space"
+  | "close-parent"
+  | "page-up"
+  | "page-down"
+  | "half-up"
+  | "half-down"
+  | "next-hunk"
+  | "prev-hunk"
+  | "top"
+  | "bottom"
+
+/** One flattened file-tree row, published by the diff view so diffKey can
+ * resolve the row under the cursor without knowing the tree itself. */
+export type DiffRowInfo = { path: string; dir: boolean; fileIndex: number }
+
 export type PermRecord = {
   id: string
   sessionID: string
@@ -49,6 +79,18 @@ export function createDeck(context: Context) {
     const [diffView, setDiffView] = createSignal<"split" | "unified">("split")
     const [diffScroll, setDiffScrollRaw] = createSignal(0)
     const [diffListTop, setDiffListTopRaw] = createSignal(0)
+    // Diff page file tree: source switch, collapsed dir paths, focus (tree ⇄
+    // patch) and the cursor row in the flattened tree (raw — the view clamps
+    // it to the rows). diffSel stays the selected file index in the list.
+    const [diffSource, setDiffSourceRaw] = createSignal<DiffSource>("edits")
+    const [diffCollapsed, setDiffCollapsed] = createSignal<ReadonlySet<string>>(new Set())
+    const [diffFocus, setDiffFocus] = createSignal<DiffFocus>("tree")
+    const [diffCursor, setDiffCursorRaw] = createSignal(0)
+    // Bump to refetch the git working tree (the view keys its resource on it).
+    const [diffGitTick, setDiffGitTick] = createSignal(0)
+    // Flattened tree rows published by the diff view so diffKey can resolve
+    // the row under the cursor without owning the tree.
+    const [diffRows, setDiffRowsRaw] = createSignal<readonly DiffRowInfo[]>([])
     // Visible patch row count, published by the view so the keymap can scroll
     // by pages without knowing the layout.
     const [diffPage, setDiffPageRaw] = createSignal(1)
@@ -502,10 +544,98 @@ export function createDeck(context: Context) {
       diffScrollBy(delta: number) {
         setDiffScrollRaw((current) => Math.max(0, current + delta))
       },
-      /** First visible file index in the diff list column; view clamps the max. */
+      /** First visible row index in the diff file tree; view clamps the max. */
       diffListTop,
       setDiffListTop(value: number) {
         setDiffListTopRaw(Math.max(0, Math.floor(value)))
+      },
+      /** Diff page source: session edits (default) or the git working tree. */
+      diffSource,
+      setDiffSource(source: DiffSource) {
+        if (source === diffSource()) return
+        setDiffSourceRaw(source)
+        // The file list changes wholesale: reset selection/cursor/scrolls.
+        // Collapsed dirs survive — paths mostly overlap between sources.
+        setDiffSel(0)
+        setDiffCursorRaw(0)
+        setDiffScrollRaw(0)
+        setDiffListTopRaw(0)
+      },
+      /** Collapsed directory paths on the diff page's file tree. */
+      diffCollapsed,
+      /** Toggle one directory's collapsed state by path. */
+      diffToggleDir(path: string) {
+        setDiffCollapsed((current) => {
+          const next = new Set(current)
+          if (next.has(path)) next.delete(path)
+          else next.add(path)
+          return next
+        })
+      },
+      /** Which diff pane owns the movement keys (default: tree). */
+      diffFocus,
+      diffToggleFocus() {
+        setDiffFocus((current) => (current === "tree" ? "patch" : "tree"))
+      },
+      /** Cursor row in the flattened file tree; raw, the view clamps the max. */
+      diffCursor,
+      setDiffCursor(value: number) {
+        setDiffCursorRaw(Math.max(0, Math.floor(value)))
+      },
+      diffGitTick,
+      /** Refetch the git working tree diff (no visible effect on "edits"). */
+      diffRefreshGit() {
+        setDiffGitTick((value) => value + 1)
+      },
+      /** The diff view publishes its flattened tree rows here for diffKey. */
+      setDiffRows(rows: readonly DiffRowInfo[]) {
+        setDiffRowsRaw(rows)
+      },
+      /**
+       * Focus-aware key routing for the diff page: in "tree" focus movement
+       * keys drive the cursor and open/close-parent work the tree; in "patch"
+       * focus they scroll the patch. One entry point so the keymap binds a
+       * single helper per key.
+       */
+      diffKey(key: DiffKey) {
+        if (diffFocus() === "tree") {
+          const rows = diffRows()
+          if (rows.length === 0) return
+          const cursor = Math.max(0, Math.min(rows.length - 1, diffCursor()))
+          if (key === "down") {
+            setDiffCursorRaw(cursor + 1) // raw; the view snaps overflow back
+          } else if (key === "up") {
+            setDiffCursorRaw(Math.max(0, cursor - 1))
+          } else if (key === "open" || key === "space") {
+            const row = rows[cursor]
+            if (row === undefined) return
+            if (row.dir) {
+              deck.diffToggleDir(row.path)
+            } else if (row.fileIndex >= 0) {
+              deck.diffSelect(row.fileIndex)
+              setDiffFocus("patch")
+            }
+          } else if (key === "close-parent") {
+            const row = rows[cursor]
+            if (row === undefined) return
+            const slash = row.path.lastIndexOf("/")
+            if (slash <= 0) return
+            const parent = row.path.slice(0, slash)
+            setDiffCollapsed((current) => new Set(current).add(parent))
+          }
+          return
+        }
+        // patch focus
+        if (key === "down") deck.diffScrollBy(1)
+        else if (key === "up") deck.diffScrollBy(-1)
+        else if (key === "space" || key === "page-down") deck.diffScrollBy(deck.diffPage())
+        else if (key === "page-up") deck.diffScrollBy(-deck.diffPage())
+        else if (key === "half-down") deck.diffScrollBy(Math.max(1, Math.floor(deck.diffPage() / 2)))
+        else if (key === "half-up") deck.diffScrollBy(-Math.max(1, Math.floor(deck.diffPage() / 2)))
+        else if (key === "next-hunk") deck.diffJump("next-hunk")
+        else if (key === "prev-hunk") deck.diffJump("prev-hunk")
+        else if (key === "top") deck.diffJump("top")
+        else if (key === "bottom") deck.diffJump("bottom")
       },
       /** Visible patch row count, published by the view for page scrolling. */
       diffPage,
@@ -525,6 +655,10 @@ export function createDeck(context: Context) {
         setDiffSel(0)
         setDiffScrollRaw(0)
         setDiffListTopRaw(0)
+        setDiffCursorRaw(0)
+        setDiffFocus("tree")
+        setDiffSourceRaw("edits")
+        setDiffCollapsed(new Set<string>())
         // diffOpen (and its keymap mode) follows the route effect, so the
         // "opendeck" and "opendeck-diff" modes are never pushed together.
         try {

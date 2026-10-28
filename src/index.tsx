@@ -91,7 +91,9 @@ export default Plugin.define({
 
     // Diff page keys: scoped to the "opendeck-diff" keymap mode, which the
     // deck pushes only while the diff route is the current route. One command
-    // per key — `bind` takes a single key string.
+    // per key — `bind` takes a single key string. Movement/open/page keys are
+    // focus-aware: deck.diffKey routes them to the tree cursor or the patch
+    // scroll depending on deck.diffFocus (tab swaps the two).
     context.keymap.layer(() => ({
       mode: "opendeck-diff",
       commands: [
@@ -110,24 +112,113 @@ export default Plugin.define({
           run: () => deck.closeDiff(),
         },
         {
+          id: "opendeck.diff.focus",
+          title: "Opendeck: switch diff pane focus",
+          description: "Swap keyboard focus between the file tree and the patch",
+          group: "Opendeck",
+          bind: "tab",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffToggleFocus(),
+        },
+        {
           bind: "j",
           enabled: () => deck.diffOpen(),
-          run: () => deck.diffMove(1),
+          run: () => deck.diffKey("down"),
         },
         {
           bind: "down",
           enabled: () => deck.diffOpen(),
-          run: () => deck.diffMove(1),
+          run: () => deck.diffKey("down"),
         },
         {
           bind: "k",
           enabled: () => deck.diffOpen(),
-          run: () => deck.diffMove(-1),
+          run: () => deck.diffKey("up"),
         },
         {
           bind: "up",
           enabled: () => deck.diffOpen(),
-          run: () => deck.diffMove(-1),
+          run: () => deck.diffKey("up"),
+        },
+        // Tree: open dir/file (file also moves focus to the patch).
+        {
+          bind: "enter",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("open"),
+        },
+        {
+          bind: "l",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("open"),
+        },
+        {
+          bind: "right",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("open"),
+        },
+        {
+          bind: "h",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("close-parent"),
+        },
+        {
+          bind: "left",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("close-parent"),
+        },
+        // Tree: open under cursor; patch: page down.
+        {
+          bind: "space",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("space"),
+        },
+        // Page scrolling uses the view-published visible row count.
+        {
+          bind: "pagedown",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("page-down"),
+        },
+        {
+          bind: "b",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("page-up"),
+        },
+        {
+          bind: "pageup",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("page-up"),
+        },
+        {
+          bind: "ctrl+d",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("half-down"),
+        },
+        {
+          bind: "ctrl+u",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("half-up"),
+        },
+        // Hunk/top/bottom jumps: the view owns row indexes, so these send a
+        // jump request the view consumes.
+        {
+          bind: "n",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("next-hunk"),
+        },
+        {
+          bind: "p",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("prev-hunk"),
+        },
+        {
+          bind: "g",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("top"),
+        },
+        {
+          bind: "shift+g",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffKey("bottom"),
         },
         {
           id: "opendeck.diff.toggle-view",
@@ -138,58 +229,32 @@ export default Plugin.define({
           enabled: () => deck.diffOpen(),
           run: () => deck.diffToggleView(),
         },
-        // Page scrolling uses the view-published visible row count.
         {
-          bind: "space",
+          id: "opendeck.diff.source-edits",
+          title: "Opendeck: diff session edits",
+          description: "Show files changed by the session's edit/write tool calls",
+          group: "Opendeck",
+          bind: "1",
           enabled: () => deck.diffOpen(),
-          run: () => deck.diffScrollBy(deck.diffPage()),
+          run: () => deck.setDiffSource("edits"),
         },
         {
-          bind: "pagedown",
+          id: "opendeck.diff.source-git",
+          title: "Opendeck: diff git working tree",
+          description: "Show the git working tree diff for the session's directory",
+          group: "Opendeck",
+          bind: "2",
           enabled: () => deck.diffOpen(),
-          run: () => deck.diffScrollBy(deck.diffPage()),
+          run: () => deck.setDiffSource("git"),
         },
         {
-          bind: "b",
+          id: "opendeck.diff.refresh-git",
+          title: "Opendeck: refresh git diff",
+          description: "Refetch the git working tree diff",
+          group: "Opendeck",
+          bind: "r",
           enabled: () => deck.diffOpen(),
-          run: () => deck.diffScrollBy(-deck.diffPage()),
-        },
-        {
-          bind: "pageup",
-          enabled: () => deck.diffOpen(),
-          run: () => deck.diffScrollBy(-deck.diffPage()),
-        },
-        {
-          bind: "ctrl+d",
-          enabled: () => deck.diffOpen(),
-          run: () => deck.diffScrollBy(Math.max(1, Math.floor(deck.diffPage() / 2))),
-        },
-        {
-          bind: "ctrl+u",
-          enabled: () => deck.diffOpen(),
-          run: () => deck.diffScrollBy(-Math.max(1, Math.floor(deck.diffPage() / 2))),
-        },
-        // Hunk/top/bottom jumps: the view owns row indexes, so these send a
-        // jump request the view consumes.
-        {
-          bind: "n",
-          enabled: () => deck.diffOpen(),
-          run: () => deck.diffJump("next-hunk"),
-        },
-        {
-          bind: "p",
-          enabled: () => deck.diffOpen(),
-          run: () => deck.diffJump("prev-hunk"),
-        },
-        {
-          bind: "g",
-          enabled: () => deck.diffOpen(),
-          run: () => deck.diffJump("top"),
-        },
-        {
-          bind: "shift+g",
-          enabled: () => deck.diffOpen(),
-          run: () => deck.diffJump("bottom"),
+          run: () => deck.diffRefreshGit(),
         },
       ],
     }))

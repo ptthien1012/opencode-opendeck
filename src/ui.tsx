@@ -136,6 +136,91 @@ export function KeyHints(props: { items: readonly [string, string][]; w: number 
   )
 }
 
+/**
+ * Fixed-window scrollable list: renders exactly `height` rows — the slice
+ * items[top, top+height) plus blank pad rows — each boxed at the same width
+ * so columns line up (no ragged edges). `top` is clamped to
+ * [0, max(0, items.length - height)] for rendering only; the clamped value is
+ * never written back. The wheel reports the desired next top via onScroll
+ * (±3, clamped). With scrollbar + overflowing items a 1-col bar takes the
+ * rightmost column: faint │ track, accent ┃ thumb sized height²/len (min 1).
+ */
+export function ScrollList<T>(props: {
+  items: readonly T[]
+  top: number
+  height: number
+  width: number
+  onScroll: (nextTop: number) => void
+  render: (item: T, index: number) => JSX.Element
+  scrollbar?: boolean
+}) {
+  const context = usePlugin()
+  const theme = () => context.theme
+  const height = createMemo(() => Math.max(0, Math.floor(props.height)))
+  const width = createMemo(() => Math.max(1, Math.floor(props.width)))
+  const maxTop = createMemo(() => Math.max(0, props.items.length - height()))
+  const top = createMemo(() => Math.max(0, Math.min(maxTop(), Math.floor(props.top))))
+  const bar = createMemo(
+    () => props.scrollbar === true && width() >= 2 && height() > 0 && props.items.length > height(),
+  )
+  const contentW = createMemo(() => width() - (bar() ? 1 : 0))
+  // One slot per visible row; item is undefined past the end (pad rows).
+  // Fresh wrapper objects per recompute — rows are few, re-render cost is nil.
+  const rows = createMemo(() => {
+    const out: { item: T | undefined; index: number }[] = []
+    for (let i = 0; i < height(); i++) {
+      const index = top() + i
+      out.push({ item: props.items[index], index })
+    }
+    return out
+  })
+  const thumb = createMemo(() => {
+    const size = Math.max(1, Math.floor((height() * height()) / Math.max(1, props.items.length)))
+    const travel = Math.max(0, height() - size)
+    const start = maxTop() === 0 ? 0 : Math.min(travel, Math.round((top() / maxTop()) * travel))
+    return { size, start }
+  })
+  function onWheel(event: { scroll?: { direction?: string } }) {
+    const direction = event.scroll?.direction
+    if (direction === "up") props.onScroll(Math.max(0, top() - 3))
+    else if (direction === "down") props.onScroll(Math.min(maxTop(), top() + 3))
+  }
+  return (
+    <box
+      flexDirection="row"
+      width={width()}
+      height={height()}
+      flexShrink={0}
+      overflow="hidden"
+      onMouseScroll={onWheel}
+    >
+      <box flexDirection="column" width={contentW()} flexShrink={0} overflow="hidden">
+        <For each={rows()}>
+          {(row) => (
+            <box flexDirection="row" width={contentW()} height={1} overflow="hidden">
+              {row.item === undefined ? <text wrapMode="none">{" "}</text> : props.render(row.item, row.index)}
+            </box>
+          )}
+        </For>
+      </box>
+      <Show when={bar()}>
+        <box flexDirection="column" width={1} flexShrink={0} overflow="hidden">
+          <For each={rows()}>
+            {(row, index) => {
+              const inThumb = () => index() >= thumb().start && index() < thumb().start + thumb().size
+              return (
+                <text wrapMode="none" fg={inThumb() ? theme().hue.accent[200] : theme().text.faint}>
+                  {inThumb() ? "┃" : "│"}
+                </text>
+              )
+            }}
+          </For>
+        </box>
+      </Show>
+    </box>
+  )
+}
+
 export const glyph = {
   running: "●",
   done: "✓",
