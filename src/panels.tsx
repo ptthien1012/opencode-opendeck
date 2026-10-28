@@ -7,7 +7,7 @@
 import { usePlugin } from "@opencode/plugin/tui"
 import { createMemo, For, Show } from "solid-js"
 import { formatClock, formatTokens, maskSecrets, truncate } from "./format.js"
-import { cacheShare, filesTouched, formatDuration, hbar, recentErrors, sessionStats, sparkline, turnSeries } from "./metrics.js"
+import { cacheShare, diffFromTools, filesTouched, formatDuration, hbar, recentErrors, sessionStats, sparkline, turnSeries } from "./metrics.js"
 import { agentName, assistantMessages, collectToolParts, openSessionSafe, sessionTokens } from "./shared.js"
 import type { Deck } from "./state.js"
 
@@ -191,29 +191,56 @@ export function ErrorsPanel(props: PanelProps) {
 export function FilesPanel(props: PanelProps) {
   const context = usePlugin()
   const theme = () => context.theme
+  // Per agent: files from snapshot.files, with +/- counts from that agent's
+  // edit tool metadata when available. Click a file to open the diff page.
   const groups = createMemo(() => {
     const ids = props.deck.familyIds(props.sessionID)
-    const out: { id: string; who: string; files: string[] }[] = []
+    const out: { id: string; who: string; files: { file: string; status: string; adds?: number; dels?: number }[] }[] = []
     for (const id of ids) {
-      const files = filesTouched(assistantMessages(context.data.session.message.list(id)))
-      if (files.length === 0) continue
+      const stats = new Map(diffFromTools(collectToolParts(context, [id])).map((diff) => [diff.file, diff]))
+      const names = filesTouched(assistantMessages(context.data.session.message.list(id)))
+      for (const file of stats.keys()) if (!names.includes(file)) names.push(file)
+      if (names.length === 0) continue
       const session = context.data.session.get(id)
-      out.push({ id, who: id === props.sessionID ? (session?.agent ?? "main") : session ? agentName(session, 12) : "agent", files })
+      out.push({
+        id,
+        who: id === props.sessionID ? (session?.agent ?? "main") : session ? agentName(session, 12) : "agent",
+        files: names.map((file) => {
+          const hit = stats.get(file)
+          return { file, status: hit?.status ?? "modified", adds: hit?.additions, dels: hit?.deletions }
+        }),
+      })
     }
     return out
   })
   const total = createMemo(() => groups().reduce((sum, group) => sum + group.files.length, 0))
   const inner = createMemo(() => Math.max(10, props.w - 4))
+  const glyph = (status: string) => (status === "added" ? "A" : status === "deleted" ? "D" : "M")
 
   return (
     <Show when={total() > 0}>
-      <Panel title="files changed" right={`${total()}`} w={props.w}>
+      <Panel title="files changed" right={`${total()} · [f] diff`} w={props.w}>
         <For each={groups()}>
           {(group) => (
             <box flexDirection="column">
               <text wrapMode="none" fg={theme().hue.accent[200]}>{truncate(`${group.who} (${group.files.length})`, inner())}</text>
               <For each={group.files.slice(-FILE_ROWS)}>
-                {(file) => <text wrapMode="none" fg={theme().text.muted}>{truncate(`  ${maskSecrets(file)}`, inner())}</text>}
+                {(entry) => {
+                  const counts = entry.adds !== undefined ? ` +${entry.adds} -${entry.dels ?? 0}` : ""
+                  return (
+                    <box flexDirection="row" justifyContent="space-between" width="100%" onMouseDown={() => props.deck.openDiff(entry.file)}>
+                      <text wrapMode="none" fg={theme().text.muted}>
+                        {truncate(`  ${glyph(entry.status)} ${maskSecrets(entry.file)}`, Math.max(8, inner() - counts.length - 1))}
+                      </text>
+                      <Show when={counts}>
+                        <box flexDirection="row" flexShrink={0}>
+                          <text wrapMode="none" fg={theme().text.feedback.success.base}>{` +${entry.adds}`}</text>
+                          <text wrapMode="none" fg={theme().text.feedback.error.base}>{` -${entry.dels ?? 0}`}</text>
+                        </box>
+                      </Show>
+                    </box>
+                  )
+                }}
               </For>
               <Show when={group.files.length > FILE_ROWS}>
                 <text wrapMode="none" fg={theme().text.faint}>{`  +${group.files.length - FILE_ROWS} earlier`}</text>
