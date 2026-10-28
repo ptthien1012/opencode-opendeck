@@ -55,6 +55,25 @@ export function agentDesc(session: { title?: string }): string {
   return maskSecrets((session.title ?? "").replace(/\s*\(@[^\s()]+\s+subagent\)\s*$/, ""))
 }
 
+/** Row label for a subagent: `name · task` truncated to `max`, or just the
+ *  name when the session carries no task text. */
+export function agentLabel(session: { title?: string; agent?: string }, max: number, nameMax = 12): string {
+  const name = agentName(session, nameMax)
+  const desc = agentDesc(session)
+  return desc ? truncate(`${name} · ${desc}`, max) : name
+}
+
+/** Recency of a session's last activity: "now" under 60s, then minutes,
+ *  hours, days — never seconds. */
+export function lastActive(session: { time: { updated: number } }, now: number): string {
+  const minutes = Math.floor(Math.max(0, now - session.time.updated) / 60_000)
+  if (minutes < 1) return "now"
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h`
+  return `${Math.floor(hours / 24)}d`
+}
+
 /** --- Activity timeline -------------------------------------------------- */
 
 export type ToolPartEntry = { part: SessionMessageAssistantTool; sessionID: string }

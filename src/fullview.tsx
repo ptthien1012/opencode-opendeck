@@ -22,7 +22,7 @@ import { formatClock, formatElapsed, formatTokens, maskSecrets, shortModel, tool
 import type { Deck, FullTab } from "./state.js"
 import { cacheShare, formatDuration, hbar, toolState } from "./metrics.js"
 import { AgentTokensPanel, ChartsPanel, ErrorsPanel, FilesPanel, StatsPanel } from "./panels.js"
-import { agentDesc, agentName, assistantMessages, collectToolParts, collapseRows, sessionTokens, toolCallCounts, useAgentState, useContextStats, usePermRecords } from "./shared.js"
+import { agentLabel, agentName, assistantMessages, collectToolParts, collapseRows, lastActive, sessionTokens, toolCallCounts, useAgentState, useContextStats, usePermRecords } from "./shared.js"
 import type { MergedPerm } from "./shared.js"
 import { Gauge, glyph, KeyHints, Marker, Rule, Section } from "./ui.js"
 
@@ -315,8 +315,8 @@ function Timeline(props: { deck: Deck; sessionID: string; w: number; rows: numbe
 
 /**
  * Orchestrator (main session) as a compact 2-line card: ▌ ◆ name · model and
- * working/idle with session age, then its top tools. The main section already
- * shows ctx and tokens, so they are not repeated here.
+ * working with session age / idle with activity recency, then its top tools.
+ * The main section already shows ctx and tokens, so they are not repeated here.
  */
 function MainCard(props: { deck: Deck; session: SessionInfo; w: number }) {
   const context = usePlugin()
@@ -325,7 +325,10 @@ function MainCard(props: { deck: Deck; session: SessionInfo; w: number }) {
   const inner = createMemo(() => Math.max(8, props.w - 2))
   const running = createMemo(() => context.data.session.status(props.session.id) === "running")
   const age = createMemo(() => formatDuration(Math.max(0, props.deck.now() - props.session.time.created)))
-  const right = createMemo(() => (running() ? `${glyph.running} working · ${age()}` : `${glyph.idle} idle · ${age()}`))
+  // Idle shows activity recency (time since the last update), not session age.
+  const right = createMemo(() =>
+    running() ? `${glyph.running} working · ${age()}` : `${glyph.idle} idle · ${lastActive(props.session, props.deck.now())}`,
+  )
   const toolsLine = createMemo(() =>
     toolCallCounts(collectToolParts(context, [props.session.id]))
       .slice(0, 4)
@@ -352,9 +355,9 @@ function MainCard(props: { deck: Deck; session: SessionInfo; w: number }) {
 }
 
 /**
- * Running subagent as a tree branch: `├─ ▌ name · model … clock`, then a
- * `│  ` detail line (task description or last tool) and a `│  ` stats line
- * (ctx, tokens, top tools). Click opens the agent's session.
+ * Running subagent as a tree branch: `├─ ▌ name · task · model … clock`, then
+ * a `│  ` detail line (last tool) and a `│  ` stats line (ctx, tokens, top
+ * tools). Click opens the agent's session.
  */
 function TreeAgent(props: { deck: Deck; session: SessionInfo; w: number; last: boolean }) {
   const context = usePlugin()
@@ -362,11 +365,14 @@ function TreeAgent(props: { deck: Deck; session: SessionInfo; w: number; last: b
   const agent = useAgentState(props.deck, props.session)
   const branch = () => (props.last ? "└─ " : "├─ ")
   const stem = () => (props.last ? "   " : "│  ")
-  const name = createMemo(() => agentName(props.session, 12))
   const clock = createMemo(() => (agent.elapsedMs() !== undefined ? formatElapsed(agent.elapsedMs()!) : "-"))
+  const model = createMemo(() => shortModel(agent.model()?.id, 12))
+  // The header carries the task next to the name; the detail line keeps the
+  // live tool so the task text is never shown twice.
+  const label = createMemo(() =>
+    agentLabel(props.session, Math.max(8, props.w - 3 - clock().length - 1 - model().length - 3)),
+  )
   const detail = createMemo(() => {
-    const desc = agentDesc(props.session)
-    if (desc) return desc
     const tool = agent.lastTool()
     return tool ? toolSummary(tool, 60) : ""
   })
@@ -384,7 +390,7 @@ function TreeAgent(props: { deck: Deck; session: SessionInfo; w: number; last: b
       .join(" "),
   )
   const statsLine = createMemo(() => {
-    const base = `${ctxLabel()} · ↑${formatTokens(agent.tokens().input)} ↓${formatTokens(agent.tokens().output)}`
+    const base = `${ctxLabel()} · in ${formatTokens(agent.tokens().input)} · out ${formatTokens(agent.tokens().output)}`
     return toolsLine() ? `${base} · ${toolsLine()}` : base
   })
 
@@ -395,7 +401,7 @@ function TreeAgent(props: { deck: Deck; session: SessionInfo; w: number; last: b
           <text wrapMode="none" fg={theme().text.faint}>{branch()}</text>
           <Marker color={agent.statusColor()} />
           <text wrapMode="none" fg={theme().text.base}>
-            {truncate(` ${name()} · ${shortModel(agent.model()?.id, 12)}`, Math.max(8, props.w - 3 - clock().length - 1))}
+            {truncate(` ${label()} · ${model()}`, Math.max(8, props.w - 3 - clock().length - 1))}
           </text>
         </box>
         <text wrapMode="none" fg={theme().text.muted} flexShrink={0}>{clock()}</text>
@@ -408,7 +414,8 @@ function TreeAgent(props: { deck: Deck; session: SessionInfo; w: number; last: b
   )
 }
 
-/** Compact one-line row for a finished (done/errored) subagent. */
+/** Compact one-line row for a finished (done/errored) subagent:
+ * `✓ name · task · model · in/out tokens · duration`, truncated to fit. */
 function DoneRow(props: { deck: Deck; session: SessionInfo; w: number }) {
   const context = usePlugin()
   const theme = () => context.theme
@@ -416,11 +423,11 @@ function DoneRow(props: { deck: Deck; session: SessionInfo; w: number }) {
   const failed = createMemo(() => agent.status() === "error")
   const line = createMemo(() => {
     const mark = failed() ? "✗" : "✓"
-    const duration = agent.elapsedMs() !== undefined ? formatElapsed(agent.elapsedMs()!) : "-"
-    return truncate(
-      `${mark} ${agentName(props.session, 12)} · ${shortModel(agent.model()?.id, 12)} · ↑${formatTokens(agent.tokens().input)} ↓${formatTokens(agent.tokens().output)} · ${duration}`,
-      Math.max(8, props.w - 2),
-    )
+    const duration = agent.elapsedMs() !== undefined ? formatDuration(agent.elapsedMs()!) : "-"
+    const tail = ` · ${shortModel(agent.model()?.id, 12)} · in ${formatTokens(agent.tokens().input)} · out ${formatTokens(agent.tokens().output)} · ${duration}`
+    // Label first so a long task never pushes the model/tokens/duration off.
+    const label = agentLabel(props.session, Math.max(8, props.w - 2 - mark.length - 1 - tail.length))
+    return truncate(`${mark} ${label}${tail}`, Math.max(8, props.w - 2))
   })
   return (
     <box onMouseDown={() => props.deck.diveInto(props.session.id)}>
@@ -435,6 +442,12 @@ function LaneRow(props: { deck: Deck; session: SessionInfo; labelW: number; barW
   const context = usePlugin()
   const theme = () => context.theme
   const agent = useAgentState(props.deck, props.session)
+  // Running lanes keep the live mm:ss clock; finished lanes read "22m".
+  const clock = createMemo(() => {
+    const ms = agent.elapsedMs()
+    if (ms === undefined) return "-"
+    return agent.running() ? formatElapsed(ms) : formatDuration(ms)
+  })
   // Live head: the bar's rightmost cell pulses while the agent runs.
   const pulse = createMemo(() => Math.floor(props.deck.tick() / 4) % 2 === 0)
   const barColor = createMemo(() => {
@@ -466,7 +479,7 @@ function LaneRow(props: { deck: Deck; session: SessionInfo; labelW: number; barW
         <text wrapMode="none" fg={theme().text.faint}>{"·".repeat(props.geo().after)}</text>
       </box>
       <text wrapMode="none" fg={theme().text.muted} flexShrink={0}>
-        {agent.elapsedMs() !== undefined ? formatElapsed(agent.elapsedMs()!) : "-"}
+        {clock()}
       </text>
     </box>
   )

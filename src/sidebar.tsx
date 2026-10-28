@@ -13,9 +13,10 @@ import type { BoxRenderable } from "@opentui/core"
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js"
 import { mixColor, spinner } from "./anim.js"
 import { formatElapsed, formatTokens, maskSecrets, shortModel, toolSummary, truncate } from "./format.js"
-import { cacheShare, sparkline, toolState, turnSeries } from "./metrics.js"
+import { cacheShare, formatDuration, sparkline, toolState, turnSeries } from "./metrics.js"
 import type { Deck } from "./state.js"
 import {
+  agentDesc,
   agentName,
   assistantMessages,
   collectToolParts,
@@ -67,7 +68,7 @@ function ContextLines(props: { deck: Deck; sessionID: string; w: Width }) {
       </Show>
       <box flexDirection="row" justifyContent="space-between" width="100%">
         <text wrapMode="none" fg={mainRunning() ? theme().hue.accent[200] : theme().text.base}>
-          {truncate(`${mainRunning() ? `${spinner(props.deck.tick())} ` : ""}↑${formatTokens(tokens().input)} ↓${formatTokens(tokens().output)}`, props.w() - 14)}
+          {truncate(`${mainRunning() ? `${spinner(props.deck.tick())} ` : ""}in ${formatTokens(tokens().input)} · out ${formatTokens(tokens().output)}`, props.w() - 14)}
         </text>
         <Show when={stats()?.modelID}>
           <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>
@@ -155,7 +156,7 @@ function ActiveRow(props: {
   })
   const tokenLabel = createMemo(() => {
     const total = agent.tokens()
-    return `↑${formatTokens(total.input)} ↓${formatTokens(total.output)}`
+    return `in ${formatTokens(total.input)} · out ${formatTokens(total.output)}`
   })
   const detail = createMemo(() => {
     const pend = props.pending
@@ -200,12 +201,18 @@ function DoneRow(props: { deck: Deck; session: SessionInfo; w: Width }) {
   const state = createMemo(() => doneGlyph(props.session))
   const duration = createMemo(() => {
     const run = props.deck.run(props.session.id)
-    if (run) return formatElapsed((run.end ?? props.deck.now()) - run.start)
+    if (run) return formatDuration((run.end ?? props.deck.now()) - run.start)
     const span = props.session.time.updated - props.session.time.created
-    return span > 0 ? formatElapsed(span) : "-"
+    return span > 0 ? formatDuration(span) : "-"
   })
   const tokens = createMemo(() => sessionTokens(context, props.session.id))
-  const right = createMemo(() => `${duration()} ↑${formatTokens(tokens().input)} ↓${formatTokens(tokens().output)}`)
+  const right = createMemo(() => `${duration()} · in ${formatTokens(tokens().input)} · out ${formatTokens(tokens().output)}`)
+  // Name plus the first 24 chars of the task, so done rows stay distinguishable.
+  const label = createMemo(() => {
+    const name = agentName(props.session)
+    const desc = agentDesc(props.session)
+    return desc ? `${name} · ${truncate(desc, 24)}` : name
+  })
 
   return (
     <box
@@ -215,7 +222,7 @@ function DoneRow(props: { deck: Deck; session: SessionInfo; w: Width }) {
       onMouseDown={() => openSessionSafe(context, props.session.id)}
     >
       <text wrapMode="none" fg={state().failed ? theme().text.feedback.error.base : theme().text.muted}>
-        {truncate(`${state().glyph} ${agentName(props.session)}`, Math.max(6, props.w() - right().length - 1))}
+        {truncate(`${state().glyph} ${label()}`, Math.max(6, props.w() - right().length - 1))}
       </text>
       <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>
         {right()}
