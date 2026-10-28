@@ -147,7 +147,20 @@ export function cmdVerb(command: string): string {
 }
 
 /** One-line "tool arg" summary of a tool call, secret-masked and truncated. */
-export function toolSummary(part: SessionMessageAssistantTool, max = 30): string {
+/** Command heads worth showing verbatim in the activity row. */
+const SHELL_VERBS = new Set([
+  "git", "bun", "bunx", "npm", "pnpm", "yarn", "flutter", "dart", "rg", "grep", "find", "ls",
+  "cat", "tail", "head", "sed", "awk", "jq", "xargs", "python", "python3", "node", "deno",
+  "opencode", "gh", "make", "cmake", "swift", "pod", "xcodebuild", "docker", "kubectl",
+  "curl", "rm", "cp", "mv", "mkdir", "touch", "chmod", "cd", "echo", "printf", "zip", "unzip",
+  "tar", "sh", "zsh", "bash", "open", "defaults", "plutil", "simctl", "fastlane",
+])
+
+export function toolSummary(
+  part: SessionMessageAssistantTool,
+  max = 30,
+  opts: { cwd?: string; home?: string } = {},
+): string {
   const input: Record<string, unknown> = part.state.status === "streaming" ? {} : (part.state.input ?? {})
   let detail = ""
   for (const key of DETAIL_KEYS) {
@@ -160,6 +173,23 @@ export function toolSummary(part: SessionMessageAssistantTool, max = 30): string
   // code-mode MCP calls: show the server.tool they hit instead of the JS body
   const target = executeTarget(part)
   if (target) detail = target
+  // shell: lead with a KNOWN command head (git/bun/flutter…) and shorten the
+  // first absolute path so the informative part survives truncation; anything
+  // else (a description, an odd script) keeps its own words.
+  if (part.name === "shell") {
+    const verb = cmdVerb(detail)
+    const path = detail.split(/\s+/).find((token) => token.startsWith("/"))
+    if (SHELL_VERBS.has(verb)) {
+      const tail = path ? ` ${shortPath(path, { cwd: opts.cwd, home: opts.home, max: 40 })}` : ""
+      detail = `${verb}${tail}`
+    }
+  } else if (detail.startsWith("/")) {
+    detail = shortPath(detail, { cwd: opts.cwd, home: opts.home, max: 44 })
+  } else {
+    // a path somewhere inside the args (grep/path tools): shorten the first one
+    const token = detail.split(/\s+/).find((word) => word.startsWith("/"))
+    if (token) detail = detail.replace(token, shortPath(token, { cwd: opts.cwd, home: opts.home, max: 44 }))
+  }
   const text = detail ? `${part.name} ${maskSecrets(detail)}` : part.name
   return truncate(text.replace(/\s+/g, " ").trim(), max)
 }

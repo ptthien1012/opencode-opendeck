@@ -243,6 +243,14 @@ function ToolsPanel(props: { deck: Deck; sessionID: string; w: number }) {
 function Timeline(props: { deck: Deck; sessionID: string; w: number; rows: number }) {
   const context = usePlugin()
   const theme = () => context.theme
+  // Host working directory, so absolute paths in tool rows can render as "./…".
+  const cwd = createMemo((): string | undefined => {
+    try {
+      return context.location?.directory || undefined
+    } catch {
+      return undefined
+    }
+  })
 
   const rows = createMemo(() => {
     const ids = props.deck.familyIds(props.sessionID)
@@ -254,7 +262,7 @@ function Timeline(props: { deck: Deck; sessionID: string; w: number; rows: numbe
         ...entry,
         main,
         who: main ? "main" : agentName(byID.get(entry.sessionID) ?? {}, 10),
-        summary: toolSummary(entry.part, 90),
+        summary: toolSummary(entry.part, 90, { cwd: cwd() }),
       }
     })
     return collapseRows(items, (item) => `${item.who}|${item.part.name}|${item.summary}`).slice(0, props.rows)

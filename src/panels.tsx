@@ -6,7 +6,7 @@
 
 import { usePlugin } from "@opencode/plugin/tui"
 import { createMemo, For, Show } from "solid-js"
-import { formatClock, formatTokens, maskSecrets, truncate } from "./format.js"
+import { formatClock, formatTokens, maskSecrets, shortPath, truncate } from "./format.js"
 import { cacheShare, diffFromTools, filesTouched, formatDuration, hbar, recentErrors, sessionStats, sparkline, turnSeries } from "./metrics.js"
 import { agentName, assistantMessages, collectToolParts, sessionTokens } from "./shared.js"
 import type { Deck } from "./state.js"
@@ -207,7 +207,7 @@ export function FilesPanel(props: PanelProps) {
                   return (
                     <box flexDirection="row" justifyContent="space-between" width="100%" onMouseDown={() => props.deck.openDiff(entry.file, props.sessionID)}>
                       <text wrapMode="none" fg={theme().text.muted}>
-                        {truncate(`  ${glyph(entry.status)} ${maskSecrets(entry.file)}`, Math.max(8, inner() - counts.length - 1))}
+                        {truncate(`  ${glyph(entry.status)} ${maskSecrets(shortPath(entry.file, { max: 70 }))}`, Math.max(8, inner() - counts.length - 1))}
                       </text>
                       <Show when={counts}>
                         <box flexDirection="row" flexShrink={0}>

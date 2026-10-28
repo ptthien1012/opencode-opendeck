@@ -353,6 +353,15 @@ function ActivitySection(props: { deck: Deck; sessionID: string; w: Width; activ
   const context = usePlugin()
   const theme = () => context.theme
 
+  // Host working directory, so absolute paths in tool rows can render as "./…".
+  const activityCwd = createMemo((): string | undefined => {
+    try {
+      return context.location?.directory || undefined
+    } catch {
+      return undefined
+    }
+  })
+
   // Only the main session + currently active agents, newest first, with
   // consecutive identical rows collapsed into one `×n` row. Max 6 shown.
   const rows = createMemo(() => {
@@ -369,7 +378,7 @@ function ActivitySection(props: { deck: Deck; sessionID: string; w: Width; activ
                 {},
               8,
             ),
-      summary: toolSummary(entry.part, 80),
+      summary: toolSummary(entry.part, 80, { cwd: activityCwd() }),
     }))
     return collapseRows(items, (item) => `${item.who ?? "main"}|${item.part.name}|${item.summary}`).slice(0, ACTIVITY_LIMIT)
   })
