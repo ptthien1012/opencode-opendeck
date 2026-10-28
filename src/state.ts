@@ -9,7 +9,7 @@ export type Run = { start: number; end?: number }
 export type DiffJumpTarget = "next-hunk" | "prev-hunk" | "top" | "bottom"
 
 /** Diff page source: session tool-call edits, or the git working tree. */
-export type DiffSource = "edits" | "git"
+export type DiffSource = "edits" | "git" | "commit"
 
 /** Which diff pane owns the movement keys. */
 export type DiffFocus = "tree" | "patch"
@@ -88,6 +88,18 @@ export function createDeck(context: Context) {
     const [diffCursor, setDiffCursorRaw] = createSignal(0)
     // Bump to refetch the git working tree (the view keys its resource on it).
     const [diffGitTick, setDiffGitTick] = createSignal(0)
+    // Commit source for the diff page (hash) and where esc returns to.
+    const [diffCommit, setDiffCommit] = createSignal<string | undefined>(undefined)
+    const [diffBack, setDiffBack] = createSignal<"full" | "git">("full")
+    // Git log page (plugin route "opendeck-git"): open flag, selected commit
+    // (index into commit rows only, raw — the view clamps and snaps back),
+    // list scroll top, visible page size, reload tick, selected commit hash.
+    const [gitOpen, setGitOpen] = createSignal(false)
+    const [gitSel, setGitSelRaw] = createSignal(0)
+    const [gitTop, setGitTopRaw] = createSignal(0)
+    const [gitPage, setGitPageRaw] = createSignal(1)
+    const [gitTick, setGitTick] = createSignal(0)
+    const [gitHash, setGitHashRaw] = createSignal<string | undefined>(undefined)
     // Flattened tree rows published by the diff view so diffKey can resolve
     // the row under the cursor without owning the tree.
     const [diffRows, setDiffRowsRaw] = createSignal<readonly DiffRowInfo[]>([])
@@ -263,6 +275,8 @@ export function createDeck(context: Context) {
       popMode = undefined
       popDiffMode?.()
       popDiffMode = undefined
+      popGitMode?.()
+      popGitMode = undefined
       stopTicker()
       offAsked()
       offReplied()
@@ -289,6 +303,17 @@ export function createDeck(context: Context) {
       } else {
         popDiffMode?.()
         popDiffMode = undefined
+      }
+    })
+
+    // And for the git log page.
+    let popGitMode: (() => void) | undefined
+    createEffect(() => {
+      if (gitOpen()) {
+        if (!popGitMode) popGitMode = context.keymap.mode.push("opendeck-git")
+      } else {
+        popGitMode?.()
+        popGitMode = undefined
       }
     })
 
@@ -331,6 +356,7 @@ export function createDeck(context: Context) {
       if (route.type !== "plugin") diving = false
       setFull(route.type === "plugin" && route.name === "opendeck")
       setDiffOpen(route.type === "plugin" && route.name === "opendeck-diff")
+      setGitOpen(route.type === "plugin" && route.name === "opendeck-git")
       if (route.type === "session") {
         let root = ""
         try {
@@ -658,6 +684,8 @@ export function createDeck(context: Context) {
         setDiffCursorRaw(0)
         setDiffFocus("tree")
         setDiffSourceRaw("edits")
+        setDiffCommit(undefined)
+        setDiffBack("full")
         setDiffCollapsed(new Set<string>())
         // diffOpen (and its keymap mode) follows the route effect, so the
         // "opendeck" and "opendeck-diff" modes are never pushed together.
@@ -671,9 +699,66 @@ export function createDeck(context: Context) {
           // host without plugin routes: stay put
         }
       },
-      /** Back from the diff page to the Opendeck full view. */
+      /** Back from the diff page: to the git log when opened from there, else the full view. */
       closeDiff() {
         setDiffOpen(false)
+        if (diffBack() === "git") deck.openGit()
+        else deck.openFullview()
+      },
+      /** Commit shown by the diff page's "commit" source. */
+      diffCommit,
+      /** Open the diff page on one commit's files (from the git log page). */
+      openDiffCommit(hash: string, sessionID?: string) {
+        deck.openDiff(undefined, sessionID)
+        setDiffSourceRaw("commit")
+        setDiffCommit(hash)
+        setDiffBack("git")
+      },
+      /** Git log page open flag (follows the route). */
+      gitOpen,
+      /** Selected commit: index into commit rows (connector lines excluded). */
+      gitSel,
+      gitMove(delta: number) {
+        setGitSelRaw((current) => Math.max(0, current + Math.trunc(delta)))
+      },
+      gitSelect(index: number) {
+        setGitSelRaw(Math.max(0, Math.floor(index)))
+      },
+      gitTop,
+      setGitTop(value: number) {
+        setGitTopRaw(Math.max(0, Math.floor(value)))
+      },
+      gitPage,
+      setGitPage(rows: number) {
+        setGitPageRaw(Math.max(1, Math.floor(rows)))
+      },
+      gitTick,
+      gitReload() {
+        setGitTick((value) => value + 1)
+      },
+      /** Hash of the selected commit, published by the git view. */
+      gitHash,
+      setGitHash(hash: string | undefined) {
+        setGitHashRaw(hash)
+      },
+      /** Open the selected commit in the diff page. */
+      gitOpenSelected() {
+        const hash = gitHash()
+        if (hash) deck.openDiffCommit(hash, lastRoot())
+      },
+      /** Open the git log page for the given root session (else the last open root). */
+      openGit(sessionID?: string) {
+        const id = sessionID ?? lastRoot() ?? rootSessionID()
+        if (id) setLastRoot(id)
+        try {
+          context.ui.router.navigate({ type: "plugin", name: "opendeck-git", data: { sessionID: id } })
+        } catch {
+          // host without plugin routes: stay put
+        }
+      },
+      /** Back from the git log page to the Opendeck full view. */
+      closeGit() {
+        setGitOpen(false)
         deck.openFullview()
       },
       flash,
