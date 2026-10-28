@@ -1,8 +1,9 @@
 /** @jsxImportSource @opentui/solid */
 // Smart compact sidebar (Part 1): Active agents with live rows, a Done
-// section collapsed to one header line, activity collapsed to unique rows,
-// an MCP section with per-server call counts, and a permission strip —
-// every section hidden when it has nothing to say.
+// block collapsed to one header line inside the agents section, activity
+// collapsed to unique rows, a tool-calls section with per-server MCP
+// counts, and a permission strip — every section hidden when it has
+// nothing to say.
 // Borderless Grok-CLI style (see ui.tsx): rule-headed sections, ▰▱ ctx
 // gauges, ▌ markers, one accent. All rows are truncated to the measured
 // slot width and never wrap.
@@ -50,7 +51,7 @@ function ContextLines(props: { deck: Deck; sessionID: string; w: Width }) {
   const cached = createMemo(() => Math.round(cacheShare(messages()) * 100))
   // Output tokens per turn; the host sidebar already shows Context, so the
   // ctx gauge only appears once it is worth a warning (>= 70%).
-  const spark = createMemo(() => sparkline(turnSeries(messages()).map((turn) => turn.output), Math.max(4, props.w() - 17)))
+  const spark = createMemo(() => sparkline(turnSeries(messages()).map((turn) => turn.output), Math.max(4, props.w() - 25)))
   const warn = createMemo(() => (ratio() ?? 0) >= 0.7)
   const mainRunning = createMemo(() => context.data.session.status(props.sessionID) === "running")
 
@@ -70,7 +71,7 @@ function ContextLines(props: { deck: Deck; sessionID: string; w: Width }) {
         <text wrapMode="none" fg={mainRunning() ? theme().hue.accent[200] : theme().text.base}>
           {truncate(`${mainRunning() ? `${spinner(props.deck.tick())} ` : ""}in ${formatTokens(tokens().input)} · out ${formatTokens(tokens().output)}`, props.w() - 14)}
         </text>
-        <Show when={stats()?.modelID}>
+        <Show when={stats()?.modelID && props.w() < 34}>
           <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>
             {shortModel(stats()?.modelID, 12)}
           </text>
@@ -78,7 +79,7 @@ function ContextLines(props: { deck: Deck; sessionID: string; w: Width }) {
       </box>
       <Show when={spark().trim().length > 0}>
         <box flexDirection="row" gap={1}>
-          <text wrapMode="none" fg={theme().text.faint}>out</text>
+          <text wrapMode="none" fg={theme().text.faint}>tokens/turn</text>
           <text wrapMode="none" fg={theme().text.feedback.success.base}>{spark()}</text>
           <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>{`cache ${cached()}%`}</text>
         </box>
@@ -105,7 +106,7 @@ function McpSection(props: { deck: Deck; sessionID: string; w: Width }) {
 
   return (
     <Show when={rows().length > 0}>
-      <Section title="mcp" right={`${total()} ${total() === 1 ? "call" : "calls"}`} w={props.w()}>
+      <Section title="tool calls" right={`${total()} calls`} w={props.w()}>
         <For each={rows().slice(0, MCP_LIMIT)}>
           {(row) => {
             const label = createMemo(() => truncate(row.key, Math.max(6, props.w() - 2 - `×${row.count}`.length - 1)))
@@ -271,7 +272,9 @@ function DoneBlock(props: { deck: Deck; done: SessionInfo[]; ok: number; failed:
 /**
  * Active: running agents, agents waiting on a permission reply, and agents
  * finished within the last ~30s. Done: everything else, collapsed to one
- * header line (`▸ Done 5  ✓4 ✗1`) until clicked. Both hide when empty.
+ * header line (`▸ Done 5  ✓4 ✗1`) until clicked — always inside the agents
+ * section, after the active rows, so the section hides only when there are
+ * no children at all.
  */
 function AgentsArea(props: { deck: Deck; sessionID: string; w: Width }) {
   const context = usePlugin()
@@ -334,23 +337,20 @@ function AgentsArea(props: { deck: Deck; sessionID: string; w: Width }) {
   const inner: Width = () => Math.max(10, props.w() - 2)
 
   return (
-    <>
-      <Show when={partition().active.length > 0}>
-        <Section title="agents" right={`${partition().active.length} active`} w={props.w()}>
-          <For each={partition().active}>
-            {(child) => <ActiveRow deck={props.deck} session={child} w={inner} pending={pendingByAgent().get(child.id)} />}
-          </For>
-          <Show when={partition().done.length > 0}>
-            <DoneBlock deck={props.deck} done={partition().done} ok={doneCounts().ok} failed={doneCounts().failed} w={inner} />
-          </Show>
-        </Section>
-      </Show>
-      <Show when={partition().active.length === 0 && partition().done.length > 0}>
-        <box marginTop={1}>
-          <DoneBlock deck={props.deck} done={partition().done} ok={doneCounts().ok} failed={doneCounts().failed} w={props.w} />
-        </box>
-      </Show>
-    </>
+    <Show when={partition().active.length > 0 || partition().done.length > 0}>
+      <Section
+        title="agents"
+        right={partition().active.length > 0 ? `${partition().active.length} active` : undefined}
+        w={props.w()}
+      >
+        <For each={partition().active}>
+          {(child) => <ActiveRow deck={props.deck} session={child} w={inner} pending={pendingByAgent().get(child.id)} />}
+        </For>
+        <Show when={partition().done.length > 0}>
+          <DoneBlock deck={props.deck} done={partition().done} ok={doneCounts().ok} failed={doneCounts().failed} w={inner} />
+        </Show>
+      </Section>
+    </Show>
   )
 }
 
@@ -426,8 +426,10 @@ function ActivitySection(props: { deck: Deck; sessionID: string; w: Width; activ
               const suffix = row.count > 1 ? ` ×${row.count}` : ""
               return truncate(`${prefix}${row.item.summary}${suffix}`, Math.max(6, props.w() - 2))
             })
+            // Subagent rows read text.base; the session's own rows recede to
+            // text.muted so the main-session noise stays in the background.
             const labelColor = createMemo(() => {
-              const normal = part.state.status === "completed" ? theme().text.muted : theme().text.base
+              const normal = row.item.who ? theme().text.base : theme().text.muted
               const level = props.deck.flashLevel(part.id)
               if (level <= 0) return normal
               return mixColor(theme().hue.accent[200], normal, 1 - level)
@@ -523,6 +525,10 @@ export function Sidebar(props: { deck: Deck; sessionID: string }) {
   const [measured, setMeasured] = createSignal(0)
   onMount(() => setMeasured(rootRef?.width ?? 0))
   const w = createMemo(() => Math.max(20, measured() || 30))
+  // Model for the ◆ opendeck header line once the slot is wide enough; below
+  // that it stays at the end of the in/out row (ContextLines).
+  const { stats } = useContextStats(props.deck, () => props.sessionID)
+  const model = createMemo(() => stats()?.modelID)
 
   const children = createMemo(() => props.deck.children(props.sessionID))
   const activeAgents = createMemo(() => {
@@ -557,14 +563,6 @@ export function Sidebar(props: { deck: Deck; sessionID: string }) {
       !hasActivity(),
   )
 
-  const shortcut = createMemo(() => {
-    try {
-      return context.keymap.shortcuts("opendeck.open")[0] ?? ""
-    } catch {
-      return ""
-    }
-  })
-
   return (
     <box
       width="100%"
@@ -577,13 +575,20 @@ export function Sidebar(props: { deck: Deck; sessionID: string }) {
         if (next > 0 && next !== measured()) setMeasured(next)
       }}
     >
-      <box flexDirection="row" gap={1} onMouseDown={() => props.deck.toggleCollapsed()}>
-        <text wrapMode="none" fg={theme().text.faint}>
-          {props.deck.collapsed() ? "▶" : "▼"}
-        </text>
-        <text wrapMode="none" fg={theme().hue.accent[200]}>
-          <b>{`${glyph.main} opendeck`}</b>
-        </text>
+      <box flexDirection="row" justifyContent="space-between" width="100%">
+        <box flexDirection="row" gap={1} onMouseDown={() => props.deck.toggleCollapsed()}>
+          <text wrapMode="none" fg={theme().text.faint}>
+            {props.deck.collapsed() ? "▶" : "▼"}
+          </text>
+          <text wrapMode="none" fg={theme().hue.accent[200]}>
+            <b>{`${glyph.main} opendeck`}</b>
+          </text>
+        </box>
+        <Show when={!props.deck.collapsed() && w() >= 34 && model()}>
+          <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>
+            {shortModel(model(), 12)}
+          </text>
+        </Show>
       </box>
       <Show when={!props.deck.collapsed()}>
         <ContextLines deck={props.deck} sessionID={props.sessionID} w={w} />
@@ -597,18 +602,18 @@ export function Sidebar(props: { deck: Deck; sessionID: string }) {
         <ActivitySection deck={props.deck} sessionID={props.sessionID} w={w} active={activeAgents} />
         <PermissionsSection deck={props.deck} sessionID={props.sessionID} w={w} />
         <Show when={props.deck.returnPending()}>
-          <box marginTop={1} onMouseDown={() => props.deck.openFullview()}>
+          <box onMouseDown={() => props.deck.openFullview()}>
             <text wrapMode="none" fg={theme().hue.accent[200]}>
               ⤺ back to Opendeck
             </text>
           </box>
         </Show>
-        <box flexDirection="row" gap={1} marginTop={1} onMouseDown={() => props.deck.openFullview()}>
+        <box flexDirection="row" gap={1} onMouseDown={() => props.deck.openFullview()}>
           <text wrapMode="none" fg={theme().hue.accent[200]}>
             ⤢ open
           </text>
           <text wrapMode="none" fg={theme().text.faint}>
-            {truncate(`· /opendeck${shortcut() ? ` · ${shortcut()}` : ""}`, Math.max(0, w() - 8))}
+            {truncate("· /opendeck", Math.max(0, w() - 8))}
           </text>
         </box>
       </Show>

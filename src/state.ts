@@ -118,6 +118,10 @@ export function createDeck(context: Context) {
     const [usageScope, setUsageScope] = createSignal<"all" | "project">("all")
     const [usageTop, setUsageTopRaw] = createSignal(0)
     const [usageTick, setUsageTick] = createSignal(0)
+    // Help page (plugin route "opendeck-help"): open flag + the page it was
+    // opened from, so close lands back there (full view/diff/git/usage).
+    const [helpOpen, setHelpOpen] = createSignal(false)
+    const [helpBack, setHelpBack] = createSignal<"full" | "diff" | "git" | "usage">("full")
     // Flattened tree rows published by the diff view so diffKey can resolve
     // the row under the cursor without owning the tree.
     const [diffRows, setDiffRowsRaw] = createSignal<readonly DiffRowInfo[]>([])
@@ -238,6 +242,8 @@ export function createDeck(context: Context) {
           if (gitOpen() !== onGit) setGitOpen(onGit)
           const onUsage = route.type === "plugin" && route.name === "opendeck-usage"
           if (usageOpen() !== onUsage) setUsageOpen(onUsage)
+          const onHelp = route.type === "plugin" && route.name === "opendeck-help"
+          if (helpOpen() !== onHelp) setHelpOpen(onHelp)
         } catch {
           // router unavailable this tick
         }
@@ -308,6 +314,8 @@ export function createDeck(context: Context) {
       popGitMode = undefined
       popUsageMode?.()
       popUsageMode = undefined
+      popHelpMode?.()
+      popHelpMode = undefined
       stopTicker()
       offAsked()
       offReplied()
@@ -359,6 +367,17 @@ export function createDeck(context: Context) {
       }
     })
 
+    // And for the help page.
+    let popHelpMode: (() => void) | undefined
+    createEffect(() => {
+      if (helpOpen()) {
+        if (!popHelpMode) popHelpMode = context.keymap.mode.push("opendeck-help")
+      } else {
+        popHelpMode?.()
+        popHelpMode = undefined
+      }
+    })
+
     // Seed subagents that predate this TUI: they stay absent from the client
     // data store until something syncs them by id. Cancellable: a disposed
     // deck must not touch the data store after the plugin unloads.
@@ -400,6 +419,7 @@ export function createDeck(context: Context) {
       setDiffOpen(route.type === "plugin" && route.name === "opendeck-diff")
       setGitOpen(route.type === "plugin" && route.name === "opendeck-git")
       setUsageOpen(route.type === "plugin" && route.name === "opendeck-usage")
+      setHelpOpen(route.type === "plugin" && route.name === "opendeck-help")
       if (route.type === "session") {
         let root = ""
         try {
@@ -867,6 +887,35 @@ export function createDeck(context: Context) {
       closeGit() {
         setGitOpen(false)
         deck.openFullview()
+      },
+      /** Help page open flag (follows the route). */
+      helpOpen,
+      /** Open the help page; close returns to `back` (default: full view). */
+      openHelp(back: "full" | "diff" | "git" | "usage" = "full", sessionID?: string) {
+        const id = sessionID ?? lastRoot() ?? rootSessionID()
+        if (id) setLastRoot(id)
+        setHelpBack(back)
+        // helpOpen (and its keymap mode) follows the route effect, so only
+        // one opendeck mode is ever pushed.
+        try {
+          context.ui.router.navigate({
+            type: "plugin",
+            name: "opendeck-help",
+            data: { sessionID: id },
+          })
+          setHelpOpen(true)
+        } catch {
+          // host without plugin routes: stay put
+        }
+      },
+      /** Back from the help page to the page it was opened from. */
+      closeHelp() {
+        setHelpOpen(false)
+        const back = helpBack()
+        if (back === "diff") deck.openDiff()
+        else if (back === "git") deck.openGit()
+        else if (back === "usage") deck.openUsage()
+        else deck.openFullview()
       },
       flash,
       /** 0 = not flashing; otherwise 1→0 fade progress (reactive via now()). */

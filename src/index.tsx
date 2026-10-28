@@ -4,6 +4,7 @@ import { ErrorBoundary } from "solid-js"
 import { maskSecrets, truncate } from "./format.js"
 import { DiffView } from "./diffview.js"
 import { GitView } from "./gitview.js"
+import { HelpView } from "./help.js"
 import { UsageView } from "./usageview.js"
 import { FullView } from "./fullview.js"
 import { Sidebar } from "./sidebar.js"
@@ -101,6 +102,20 @@ export default Plugin.define({
           enabled: () => deck.isFullRoute(),
           run: () => deck.openUsage(),
         },
+        // ? opens the help page. Terminals report the key differently — the
+        // literal "?", or shift-modified "/" or "?" — so bind all three (the
+        // same trio the host uses for its own diff.help shortcut).
+        {
+          id: "opendeck.help",
+          title: "Opendeck: help",
+          description: "Every Opendeck shortcut plus the symbol legend",
+          group: "Opendeck",
+          bind: "?",
+          enabled: () => deck.isFullRoute(),
+          run: () => deck.openHelp("full"),
+        },
+        { bind: "shift+?", enabled: () => deck.isFullRoute(), run: () => deck.openHelp("full") },
+        { bind: "shift+/", enabled: () => deck.isFullRoute(), run: () => deck.openHelp("full") },
         {
           id: "opendeck.tab.overview",
           title: "Opendeck: tab Overview",
@@ -317,6 +332,18 @@ export default Plugin.define({
           enabled: () => deck.diffOpen(),
           run: () => deck.openGit(),
         },
+        // ? opens the help page (close returns to the diff page).
+        {
+          id: "opendeck.diff.help",
+          title: "Opendeck: diff help",
+          description: "Every Opendeck shortcut plus the symbol legend",
+          group: "Opendeck",
+          bind: "?",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.openHelp("diff"),
+        },
+        { bind: "shift+?", enabled: () => deck.diffOpen(), run: () => deck.openHelp("diff") },
+        { bind: "shift+/", enabled: () => deck.diffOpen(), run: () => deck.openHelp("diff") },
       ],
     }))
 
@@ -344,6 +371,18 @@ export default Plugin.define({
         { bind: "k", enabled: usageOn, run: () => deck.usageScrollBy(-1) },
         { bind: "up", enabled: usageOn, run: () => deck.usageScrollBy(-1) },
         { bind: "r", enabled: usageOn, run: () => deck.usageReload() },
+        // ? opens the help page (close returns to the usage page).
+        {
+          id: "opendeck.usage.help",
+          title: "Opendeck: usage help",
+          description: "Every Opendeck shortcut plus the symbol legend",
+          group: "Opendeck",
+          bind: "?",
+          enabled: usageOn,
+          run: () => deck.openHelp("usage"),
+        },
+        { bind: "shift+?", enabled: usageOn, run: () => deck.openHelp("usage") },
+        { bind: "shift+/", enabled: usageOn, run: () => deck.openHelp("usage") },
       ],
     }))
 
@@ -376,6 +415,41 @@ export default Plugin.define({
         { bind: "shift+g", enabled: gitOn, run: () => deck.gitSelect(1_000_000) },
         { bind: "enter", enabled: gitOn, run: () => deck.gitOpenSelected() },
         { bind: "r", enabled: gitOn, run: () => deck.gitReload() },
+        // ? opens the help page (close returns to the git log).
+        {
+          id: "opendeck.git.help",
+          title: "Opendeck: git help",
+          description: "Every Opendeck shortcut plus the symbol legend",
+          group: "Opendeck",
+          bind: "?",
+          enabled: gitOn,
+          run: () => deck.openHelp("git"),
+        },
+        { bind: "shift+?", enabled: gitOn, run: () => deck.openHelp("git") },
+        { bind: "shift+/", enabled: gitOn, run: () => deck.openHelp("git") },
+      ],
+    }))
+
+    // Help page keys: scoped to the "opendeck-help" keymap mode, pushed only
+    // while the help route is current. escape/q/? all return to the page the
+    // help page was opened from (deck.helpBack).
+    const helpOn = () => deck.helpOpen()
+    context.keymap.layer(() => ({
+      mode: "opendeck-help",
+      commands: [
+        {
+          id: "opendeck.help.close",
+          title: "Opendeck: back from help",
+          description: "Return from the help page to the page you came from",
+          group: "Opendeck",
+          bind: "escape",
+          enabled: helpOn,
+          run: () => deck.closeHelp(),
+        },
+        { bind: "q", enabled: helpOn, run: () => deck.closeHelp() },
+        { bind: "?", enabled: helpOn, run: () => deck.closeHelp() },
+        { bind: "shift+?", enabled: helpOn, run: () => deck.closeHelp() },
+        { bind: "shift+/", enabled: helpOn, run: () => deck.closeHelp() },
       ],
     }))
 
@@ -423,6 +497,16 @@ export default Plugin.define({
       ),
     })
 
+    // Help page: fifth plugin route, same crash guard.
+    const unregisterHelp = context.ui.router.register({
+      name: "opendeck-help",
+      render: ({ data }) => (
+        <ErrorBoundary fallback={(err: unknown) => <CrashLine err={err} />}>
+          <HelpView deck={deck} sessionID={typeof data?.sessionID === "string" ? data.sessionID : undefined} />
+        </ErrorBoundary>
+      ),
+    })
+
     const remove = context.ui.slot({
       append: "sidebar.content",
       render: ({ sessionID }) => (
@@ -437,6 +521,7 @@ export default Plugin.define({
       unregisterDiff()
       unregisterGit()
       unregisterUsage()
+      unregisterHelp()
       remove()
       dispose()
     }
