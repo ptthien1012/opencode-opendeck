@@ -1,8 +1,10 @@
 /** @jsxImportSource @opentui/solid */
 // Full-screen diff view (plugin route "opendeck-diff"): files changed in a
 // session on the left (status glyph, +adds -dels), the selected file's patch
-// with coloured +/- lines on the right. Reached with `f` from the Opendeck
-// full view or deck.openDiff(file?); esc/q returns to the full view.
+// with coloured +/- lines on the right, split by a faint `│` separator.
+// Reached with `f` from the Opendeck full view or deck.openDiff(file?); j/k
+// moves the selection, esc/q returns to the full view. Borderless Grok-CLI
+// style (see ui.tsx).
 // No animations — this file creates no timers and never touches the ticker.
 
 import type { FileDiffInfo } from "@opencode/client"
@@ -13,6 +15,7 @@ import { maskSecrets, truncate } from "./format.js"
 import { diffFromTools } from "./metrics.js"
 import { collectToolParts } from "./shared.js"
 import type { Deck } from "./state.js"
+import { KeyHints, Marker, Rule, glyph } from "./ui.js"
 
 const STATUS_GLYPH: Record<FileDiffInfo["status"], string> = {
   added: "A",
@@ -89,7 +92,8 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
   })
 
   const listW = createMemo(() => Math.min(40, Math.floor((W() * 35) / 100)))
-  const rightW = createMemo(() => Math.max(24, W() - listW() - 4))
+  // list column + 1-char `│` separator column + two 1-char gaps.
+  const rightW = createMemo(() => Math.max(24, W() - listW() - 3))
   const maxLines = createMemo(() => Math.max(4, H() - 6))
   const visibleFiles = createMemo(() => list().slice(0, maxLines()))
 
@@ -104,6 +108,11 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
   })
   const visiblePatch = createMemo(() => patchLines().slice(0, maxLines()))
   const hiddenPatch = createMemo(() => Math.max(0, patchLines().length - maxLines()))
+  // Rows the faint `│` separator column needs to cover both columns.
+  const separatorRows = createMemo(() => {
+    const right = visiblePatch().length + (hiddenPatch() > 0 ? 1 : 0)
+    return Array.from({ length: Math.max(visibleFiles().length, right) }, (_, index) => index)
+  })
 
   function lineColor(line: string): RGBA {
     const text = theme().text
@@ -114,9 +123,8 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
     return text.muted
   }
 
-  function glyphColor(file: FileDiffInfo, active: boolean): RGBA {
+  function glyphColor(file: FileDiffInfo): RGBA {
     const text = theme().text
-    if (active) return theme().hue.accent[200]
     if (file.status === "added") return text.feedback.success.base
     if (file.status === "deleted") return text.feedback.error.base
     return text.feedback.warning.base
@@ -153,18 +161,19 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
                 <text wrapMode="none" fg={theme().text.muted}>no file changes in this session</text>
               }
             >
-              <box flexDirection="row" justifyContent="space-between" width="100%" marginBottom={1}>
+              <box flexDirection="column" width="100%" marginBottom={1}>
                 <box flexDirection="row" gap={1}>
-                  <text wrapMode="none" fg={theme().text.base}>
-                    {`Opendeck · files changed  ${list().length} files  +${totals().additions} -${totals().deletions}`}
+                  <text wrapMode="none" fg={theme().hue.accent[200]}>
+                    <b>{`${glyph.main} opendeck · files changed`}</b>
                   </text>
+                  <text wrapMode="none" fg={theme().text.muted}>{`${list().length} files`}</text>
+                  <text wrapMode="none" fg={theme().text.feedback.success.base}>{`+${totals().additions}`}</text>
+                  <text wrapMode="none" fg={theme().text.feedback.error.base}>{`-${totals().deletions}`}</text>
                   <text wrapMode="none" fg={theme().text.faint}>{`· from ${useLocal() ? "edits" : "snapshot"}`}</text>
                 </box>
-                <text wrapMode="none" fg={theme().text.faint}>
-                  [j/k] select [esc] back
-                </text>
+                <Rule w={W()} />
               </box>
-              <box flexDirection="row" gap={2} width="100%">
+              <box flexDirection="row" gap={1} width="100%">
                 <box flexDirection="column" width={listW()} flexShrink={0} overflow="hidden">
                   <For each={visibleFiles()}>
                     {(file, index) => {
@@ -173,8 +182,14 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
                       const pathW = () => Math.max(8, listW() - stats.length - 6)
                       return (
                         <box flexDirection="row" onMouseDown={() => props.deck.setDiffSel(index())}>
-                          <text wrapMode="none" flexShrink={0} fg={glyphColor(file, active())}>
-                            {`${active() ? "▶" : " "} ${STATUS_GLYPH[file.status]} `}
+                          <Show
+                            when={active()}
+                            fallback={<text wrapMode="none" flexShrink={0} fg={theme().text.faint}>{" "}</text>}
+                          >
+                            <Marker color={theme().hue.accent[200]} />
+                          </Show>
+                          <text wrapMode="none" flexShrink={0} fg={glyphColor(file)}>
+                            {` ${STATUS_GLYPH[file.status]} `}
                           </text>
                           <text wrapMode="none" fg={active() ? theme().text.base : theme().text.muted}>
                             {`${truncate(file.file, pathW())} ${stats}`}
@@ -182,6 +197,15 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
                         </box>
                       )
                     }}
+                  </For>
+                </box>
+                <box flexDirection="column" width={1} flexShrink={0} overflow="hidden">
+                  <For each={separatorRows()}>
+                    {() => (
+                      <text wrapMode="none" fg={theme().text.faint}>
+                        │
+                      </text>
+                    )}
                   </For>
                 </box>
                 <box flexDirection="column" flexGrow={1} overflow="hidden">
@@ -197,6 +221,7 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
                   </Show>
                 </box>
               </box>
+              <KeyHints items={[["j/k", "select"], ["esc", "back"]]} w={W()} />
             </Show>
           </Show>
         </Show>

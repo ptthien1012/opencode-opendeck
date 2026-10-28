@@ -3,14 +3,16 @@
 // section collapsed to one header line, activity collapsed to unique rows,
 // an MCP section with per-server call counts, and a permission strip —
 // every section hidden when it has nothing to say.
-// All rows are truncated to the measured slot width and never wrap.
+// Borderless Grok-CLI style (see ui.tsx): rule-headed sections, ▰▱ ctx
+// gauges, ▌ markers, one accent. All rows are truncated to the measured
+// slot width and never wrap.
 
 import type { SessionInfo } from "@opencode/client"
 import { usePlugin } from "@opencode/plugin/tui"
 import type { BoxRenderable } from "@opentui/core"
 import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js"
 import { mixColor, spinner } from "./anim.js"
-import { formatBar, formatElapsed, formatTokens, maskSecrets, shortModel, toolSummary, truncate } from "./format.js"
+import { formatElapsed, formatTokens, maskSecrets, shortModel, toolSummary, truncate } from "./format.js"
 import { cacheShare, sparkline, toolState, turnSeries } from "./metrics.js"
 import type { Deck } from "./state.js"
 import {
@@ -26,6 +28,7 @@ import {
   useContextStats,
   usePermRecords,
 } from "./shared.js"
+import { Gauge, Marker, Section, glyph } from "./ui.js"
 
 const DONE_LIMIT = 12
 const ACTIVITY_LIMIT = 6
@@ -41,51 +44,26 @@ function ContextLines(props: { deck: Deck; sessionID: string; w: Width }) {
   const theme = () => context.theme
 
   const { stats, ratio } = useContextStats(props.deck, () => props.sessionID)
-  const barColor = createMemo(() => {
-    const value = ratio()
-    if (value === undefined) return theme().hue.accent[200]
-    if (value > 0.85) return theme().text.feedback.error.base
-    if (value >= 0.7) return theme().text.feedback.warning.base
-    return theme().hue.accent[200]
-  })
   const tokens = createMemo(() => sessionTokens(context, props.sessionID))
   const messages = createMemo(() => assistantMessages(context.data.session.message.list(props.sessionID)))
   const cached = createMemo(() => Math.round(cacheShare(messages()) * 100))
   // Output tokens per turn; the host sidebar already shows Context, so the
-  // ctx bar only appears once it is worth a warning (>= 70%).
+  // ctx gauge only appears once it is worth a warning (>= 70%).
   const spark = createMemo(() => sparkline(turnSeries(messages()).map((turn) => turn.output), Math.max(4, props.w() - 17)))
   const warn = createMemo(() => (ratio() ?? 0) >= 0.7)
   const mainRunning = createMemo(() => context.data.session.status(props.sessionID) === "running")
-  const barW = createMemo(() => (props.w() >= 34 ? 10 : 6))
 
   return (
-    <box>
+    <box marginBottom={1}>
       <Show when={warn()}>
-      <box flexDirection="row" gap={1} width="100%">
-        <text wrapMode="none" fg={mainRunning() ? theme().hue.accent[200] : theme().text.muted}>
-          {mainRunning() ? `${spinner(props.deck.tick())} ctx` : "ctx"}
-        </text>
-        <Show when={stats()} keyed fallback={<text wrapMode="none" fg={theme().text.muted}>· no usage yet</text>}>
-          {(s: NonNullable<ReturnType<typeof stats>>) => (
-            <>
-              <Show when={ratio() !== undefined}>
-                <text wrapMode="none" fg={barColor()}>
-                  {formatBar(ratio() ?? 0, barW())}
-                </text>
-                <text wrapMode="none" fg={barColor()}>
-                  {Math.round((ratio() ?? 0) * 100)}%
-                </text>
-              </Show>
-              <Show when={props.w() >= 30}>
-                <text wrapMode="none" fg={theme().text.muted}>
-                  {formatTokens(s.used)}/{s.limit ? formatTokens(s.limit) : "?"}
-                </text>
-              </Show>
-            </>
-          )}
-        </Show>
-        <text wrapMode="none" fg={barColor()}>⚠</text>
-      </box>
+        <box flexDirection="row" gap={1} width="100%">
+          <text wrapMode="none" fg={theme().text.feedback.warning.base}>
+            ⚠
+          </text>
+          <text wrapMode="none" fg={theme().text.muted}>ctx</text>
+          <Gauge ratio={ratio()} cells={8} />
+          <text wrapMode="none" fg={theme().text.muted}>{`${Math.round((ratio() ?? 0) * 100)}%`}</text>
+        </box>
       </Show>
       <box flexDirection="row" justifyContent="space-between" width="100%">
         <text wrapMode="none" fg={mainRunning() ? theme().hue.accent[200] : theme().text.base}>
@@ -126,20 +104,17 @@ function McpSection(props: { deck: Deck; sessionID: string; w: Width }) {
 
   return (
     <Show when={rows().length > 0}>
-      <box marginTop={1}>
-        <text wrapMode="none" fg={theme().text.base}>
-          <b>MCP calls ({total()} {total() === 1 ? "call" : "calls"})</b>
-        </text>
+      <Section title="mcp" right={`${total()} ${total() === 1 ? "call" : "calls"}`} w={props.w()}>
         <For each={rows().slice(0, MCP_LIMIT)}>
           {(row) => {
-            const label = createMemo(() => truncate(row.key, Math.max(6, props.w() - 6)))
+            const label = createMemo(() => truncate(row.key, Math.max(6, props.w() - 2 - `×${row.count}`.length - 1)))
             return (
               <box flexDirection="row" justifyContent="space-between" width="100%">
                 <text wrapMode="none" fg={theme().hue.accent[200]}>
                   {label()}
                 </text>
                 <text wrapMode="none" fg={theme().text.muted} flexShrink={0}>
-                  ×{row.count}
+                  {`×${row.count}`}
                 </text>
               </box>
             )
@@ -147,10 +122,10 @@ function McpSection(props: { deck: Deck; sessionID: string; w: Width }) {
         </For>
         <Show when={rows().length > MCP_LIMIT}>
           <text wrapMode="none" fg={theme().text.faint}>
-            {"  "}+{rows().length - MCP_LIMIT} more
+            {`+${rows().length - MCP_LIMIT} more`}
           </text>
         </Show>
-      </box>
+      </Section>
     </Show>
   )
 }
@@ -168,10 +143,10 @@ function ActiveRow(props: {
   const agent = useAgentState(props.deck, props.session)
 
   const clock = createMemo(() => (agent.elapsedMs() !== undefined ? formatElapsed(agent.elapsedMs()!) : "-"))
-  const title = createMemo(() => {
-    const left = `${agent.indicator()} ${agentName(props.session)} · ${shortModel(agent.model()?.id, 10)}`
-    return truncate(left, Math.max(8, props.w() - clock().length - 1))
-  })
+  // Line 1 leads with a status marker (full-view style): ▌ name · model.
+  const title = createMemo(() =>
+    truncate(` ${agentName(props.session)} · ${shortModel(agent.model()?.id, 10)}`, Math.max(8, props.w() - clock().length - 2)),
+  )
   const ctxLabel = createMemo(() => {
     const pct = agent.ctxRatio()
     if (pct !== undefined) return `${Math.round(pct * 100)}%`
@@ -196,9 +171,12 @@ function ActiveRow(props: {
   return (
     <box onMouseDown={() => openSessionSafe(context, props.session.id)}>
       <box flexDirection="row" justifyContent="space-between" width="100%">
-        <text wrapMode="none" fg={agent.statusColor()}>
-          {title()}
-        </text>
+        <box flexDirection="row">
+          <Marker color={agent.statusColor()} />
+          <text wrapMode="none" fg={theme().text.base}>
+            {title()}
+          </text>
+        </box>
         <text wrapMode="none" fg={theme().text.muted} flexShrink={0}>
           {clock()}
         </text>
@@ -243,6 +221,43 @@ function DoneRow(props: { deck: Deck; session: SessionInfo; w: Width }) {
         {right()}
       </text>
     </box>
+  )
+}
+
+/**
+ * Done header (`▸ Done N ✓x ✗y`, click toggles) plus, when open, the compact
+ * rows and a `+K more` overflow line. Faint — it is history, not live state.
+ */
+function DoneBlock(props: { deck: Deck; done: SessionInfo[]; ok: number; failed: number; w: Width }) {
+  const context = usePlugin()
+  const theme = () => context.theme
+
+  return (
+    <>
+      <box flexDirection="row" gap={1} onMouseDown={() => props.deck.toggleDone()}>
+        <text wrapMode="none" fg={theme().text.faint}>
+          {`${props.deck.doneOpen() ? "▾" : "▸"} Done ${props.done.length}`}
+        </text>
+        <text wrapMode="none" fg={theme().text.feedback.success.base}>
+          {`✓${props.ok}`}
+        </text>
+        <Show when={props.failed > 0}>
+          <text wrapMode="none" fg={theme().text.feedback.error.base}>
+            {`✗${props.failed}`}
+          </text>
+        </Show>
+      </box>
+      <Show when={props.deck.doneOpen()}>
+        <For each={props.done.slice(0, DONE_LIMIT)}>
+          {(child) => <DoneRow deck={props.deck} session={child} w={props.w} />}
+        </For>
+        <Show when={props.done.length > DONE_LIMIT}>
+          <text wrapMode="none" fg={theme().text.faint}>
+            {`+${props.done.length - DONE_LIMIT} more`}
+          </text>
+        </Show>
+      </Show>
+    </>
   )
 }
 
@@ -308,43 +323,24 @@ function AgentsArea(props: { deck: Deck; sessionID: string; w: Width }) {
     }
   })
 
+  // Content width inside the section's 2-space indent.
+  const inner: Width = () => Math.max(10, props.w() - 2)
+
   return (
     <>
       <Show when={partition().active.length > 0}>
-        <box marginTop={1}>
-          <text wrapMode="none" fg={theme().text.base}>
-            <b>Active ({partition().active.length})</b>
-          </text>
+        <Section title="agents" right={`${partition().active.length} active`} w={props.w()}>
           <For each={partition().active}>
-            {(child) => <ActiveRow deck={props.deck} session={child} w={props.w} pending={pendingByAgent().get(child.id)} />}
+            {(child) => <ActiveRow deck={props.deck} session={child} w={inner} pending={pendingByAgent().get(child.id)} />}
           </For>
-        </box>
-      </Show>
-      <Show when={partition().done.length > 0}>
-        <box marginTop={partition().active.length > 0 ? 0 : 1}>
-          <box flexDirection="row" gap={1} onMouseDown={() => props.deck.toggleDone()}>
-            <text wrapMode="none" fg={theme().text.base}>
-              {props.deck.doneOpen() ? "▾" : "▸"} Done {partition().done.length}
-            </text>
-            <text wrapMode="none" fg={theme().text.feedback.success.base}>
-              ✓{doneCounts().ok}
-            </text>
-            <Show when={doneCounts().failed > 0}>
-              <text wrapMode="none" fg={theme().text.feedback.error.base}>
-                ✗{doneCounts().failed}
-              </text>
-            </Show>
-          </box>
-          <Show when={props.deck.doneOpen()}>
-            <For each={partition().done.slice(0, DONE_LIMIT)}>
-              {(child) => <DoneRow deck={props.deck} session={child} w={props.w} />}
-            </For>
-            <Show when={partition().done.length > DONE_LIMIT}>
-              <text wrapMode="none" fg={theme().text.muted}>
-                {"  "}+{partition().done.length - DONE_LIMIT} more
-              </text>
-            </Show>
+          <Show when={partition().done.length > 0}>
+            <DoneBlock deck={props.deck} done={partition().done} ok={doneCounts().ok} failed={doneCounts().failed} w={inner} />
           </Show>
+        </Section>
+      </Show>
+      <Show when={partition().active.length === 0 && partition().done.length > 0}>
+        <box marginTop={1}>
+          <DoneBlock deck={props.deck} done={partition().done} ok={doneCounts().ok} failed={doneCounts().failed} w={props.w} />
         </box>
       </Show>
     </>
@@ -393,10 +389,7 @@ function ActivitySection(props: { deck: Deck; sessionID: string; w: Width; activ
 
   return (
     <Show when={rows().length > 0}>
-      <box marginTop={1}>
-        <text wrapMode="none" fg={theme().text.base}>
-          <b>Activity</b>
-        </text>
+      <Section title="activity" w={props.w()}>
         <For each={rows()}>
           {(row) => {
             const part = row.item.part
@@ -435,7 +428,7 @@ function ActivitySection(props: { deck: Deck; sessionID: string; w: Width; activ
             )
           }}
         </For>
-      </box>
+      </Section>
     </Show>
   )
 }
@@ -459,17 +452,11 @@ function PermissionsSection(props: { deck: Deck; sessionID: string; w: Width }) 
 
   return (
     <Show when={records().length > 0}>
-      <box marginTop={1}>
-        <box flexDirection="row" gap={1}>
-          <text wrapMode="none" fg={theme().text.base}>
-            <b>Permissions</b>
-          </text>
-          <Show when={pending().length > 0}>
-            <text wrapMode="none" fg={pulse() ? theme().text.feedback.warning.base : theme().text.feedback.warning.muted}>
-              ({pending().length} pending)
-            </text>
-          </Show>
-        </box>
+      <Section
+        title="permissions"
+        right={pending().length > 0 ? `${pending().length} pending` : undefined}
+        w={props.w()}
+      >
         <For each={shown()}>
           {(record) => {
             const glyph = record.pending ? "!" : record.reply === "reject" ? "✗" : "✓"
@@ -503,7 +490,7 @@ function PermissionsSection(props: { deck: Deck; sessionID: string; w: Width }) 
             )
           }}
         </For>
-      </box>
+      </Section>
     </Show>
   )
 }
@@ -575,11 +562,11 @@ export function Sidebar(props: { deck: Deck; sessionID: string }) {
       }}
     >
       <box flexDirection="row" gap={1} onMouseDown={() => props.deck.toggleCollapsed()}>
-        <text wrapMode="none" fg={theme().text.base}>
+        <text wrapMode="none" fg={theme().text.faint}>
           {props.deck.collapsed() ? "▶" : "▼"}
         </text>
-        <text wrapMode="none" fg={theme().text.base}>
-          <b>Opendeck</b>
+        <text wrapMode="none" fg={theme().hue.accent[200]}>
+          <b>{`${glyph.main} opendeck`}</b>
         </text>
       </box>
       <Show when={!props.deck.collapsed()}>
@@ -601,14 +588,12 @@ export function Sidebar(props: { deck: Deck; sessionID: string }) {
           </box>
         </Show>
         <box flexDirection="row" gap={1} marginTop={1} onMouseDown={() => props.deck.openFullview()}>
-          <text wrapMode="none" fg={theme().hue.interactive[200]}>
-            ⤢ open Opendeck
+          <text wrapMode="none" fg={theme().hue.accent[200]}>
+            ⤢ open
           </text>
-          <Show when={w() >= 32}>
-            <text wrapMode="none" fg={theme().text.faint}>
-              {truncate(`/opendeck${shortcut() ? ` · ${shortcut()}` : ""}`, Math.max(0, w() - 17))}
-            </text>
-          </Show>
+          <text wrapMode="none" fg={theme().text.faint}>
+            {truncate(`· /opendeck${shortcut() ? ` · ${shortcut()}` : ""}`, Math.max(0, w() - 8))}
+          </text>
         </box>
       </Show>
     </box>
