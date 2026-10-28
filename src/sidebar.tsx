@@ -106,7 +106,7 @@ function McpSection(props: { deck: Deck; sessionID: string; w: Width }) {
 
   return (
     <Show when={rows().length > 0}>
-      <Section title="tool calls" right={`${total()} calls`} w={props.w()}>
+      <Section title="tool calls" right={`${total()} ${total() === 1 ? "call" : "calls"}`} w={props.w()}>
         <For each={rows().slice(0, MCP_LIMIT)}>
           {(row) => {
             const label = createMemo(() => truncate(row.key, Math.max(6, props.w() - 2 - `×${row.count}`.length - 1)))

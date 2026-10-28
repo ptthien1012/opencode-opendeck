@@ -182,6 +182,9 @@ export function toolSummary(
     if (SHELL_VERBS.has(verb)) {
       const tail = path ? ` ${shortPath(path, { cwd: opts.cwd, home: opts.home, max: 40 })}` : ""
       detail = `${verb}${tail}`
+    } else if (path) {
+      // script-ish command: show the path it works on instead of the preamble
+      detail = shortPath(path, { cwd: opts.cwd, home: opts.home, max: 40 })
     }
   } else if (detail.startsWith("/")) {
     detail = shortPath(detail, { cwd: opts.cwd, home: opts.home, max: 44 })
