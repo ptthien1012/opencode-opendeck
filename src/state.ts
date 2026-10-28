@@ -6,6 +6,8 @@ type Context = ReturnType<typeof usePlugin>
 
 export type Run = { start: number; end?: number }
 
+export type DiffJumpTarget = "next-hunk" | "prev-hunk" | "top" | "bottom"
+
 export type PermRecord = {
   id: string
   sessionID: string
@@ -41,6 +43,21 @@ export function createDeck(context: Context) {
     // the diff page never needs the ticker.
     const [diffOpen, setDiffOpen] = createSignal(false)
     const [diffSel, setDiffSel] = createSignal(0)
+    // Diff page view state, all raw — the view knows the row/list counts and
+    // clamps the upper bounds (and snaps out-of-range values back). Scroll
+    // resets on open and on every selection change (diffMove/diffSelect).
+    const [diffView, setDiffView] = createSignal<"split" | "unified">("split")
+    const [diffScroll, setDiffScrollRaw] = createSignal(0)
+    const [diffListTop, setDiffListTopRaw] = createSignal(0)
+    // Visible patch row count, published by the view so the keymap can scroll
+    // by pages without knowing the layout.
+    const [diffPage, setDiffPageRaw] = createSignal(1)
+    // Jump requests: the keymap bumps seq, the view (which owns hunk row
+    // indexes) consumes it and sets diffScroll.
+    const [diffJumpReq, setDiffJumpReq] = createSignal<{ target: DiffJumpTarget; seq: number }>({
+      target: "top",
+      seq: 0,
+    })
     // Bounce-back: root session to re-open the full view on, set when the
     // user dives into a subagent straight from the full view. The sidebar
     // shows a "back to Opendeck" link while this is armed.
@@ -462,12 +479,52 @@ export function createDeck(context: Context) {
       /** Move the diff file selection by delta; clamping happens in the view. */
       diffMove(delta: number) {
         setDiffSel((current) => current + delta)
+        setDiffScrollRaw(0)
+      },
+      /** Select a diff file by absolute index (row click); resets patch scroll. */
+      diffSelect(index: number) {
+        setDiffSel(index)
+        setDiffScrollRaw(0)
+      },
+      /** Diff page view mode: side-by-side (default) or unified. */
+      diffView,
+      setDiffView,
+      /** Toggle the diff page between split and unified. */
+      diffToggleView() {
+        setDiffView((current) => (current === "split" ? "unified" : "split"))
+      },
+      /** Patch scroll offset in display rows; raw, the view clamps the max. */
+      diffScroll,
+      setDiffScroll(value: number) {
+        setDiffScrollRaw(Math.max(0, Math.floor(value)))
+      },
+      /** Scroll the patch by delta rows (clamped at 0 here, at max in the view). */
+      diffScrollBy(delta: number) {
+        setDiffScrollRaw((current) => Math.max(0, current + delta))
+      },
+      /** First visible file index in the diff list column; view clamps the max. */
+      diffListTop,
+      setDiffListTop(value: number) {
+        setDiffListTopRaw(Math.max(0, Math.floor(value)))
+      },
+      /** Visible patch row count, published by the view for page scrolling. */
+      diffPage,
+      setDiffPage(value: number) {
+        setDiffPageRaw(Math.max(1, Math.floor(value)))
+      },
+      /** Latest hunk/top/bottom jump request; consumed by the diff view. */
+      diffJumpReq,
+      /** Ask the diff view to scroll to a hunk/page boundary (it owns row indexes). */
+      diffJump(target: DiffJumpTarget) {
+        setDiffJumpReq((req) => ({ target, seq: req.seq + 1 }))
       },
       /** Open the files-changed diff page (given root session, else the last open root). */
       openDiff(file?: string, sessionID?: string) {
         const id = sessionID ?? lastRoot() ?? rootSessionID()
         if (id) setLastRoot(id)
         setDiffSel(0)
+        setDiffScrollRaw(0)
+        setDiffListTopRaw(0)
         // diffOpen (and its keymap mode) follows the route effect, so the
         // "opendeck" and "opendeck-diff" modes are never pushed together.
         try {

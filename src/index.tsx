@@ -129,6 +129,68 @@ export default Plugin.define({
           enabled: () => deck.diffOpen(),
           run: () => deck.diffMove(-1),
         },
+        {
+          id: "opendeck.diff.toggle-view",
+          title: "Opendeck: toggle split/unified diff",
+          description: "Switch the diff page between side-by-side and unified view",
+          group: "Opendeck",
+          bind: "s",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffToggleView(),
+        },
+        // Page scrolling uses the view-published visible row count.
+        {
+          bind: "space",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffScrollBy(deck.diffPage()),
+        },
+        {
+          bind: "pagedown",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffScrollBy(deck.diffPage()),
+        },
+        {
+          bind: "b",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffScrollBy(-deck.diffPage()),
+        },
+        {
+          bind: "pageup",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffScrollBy(-deck.diffPage()),
+        },
+        {
+          bind: "ctrl+d",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffScrollBy(Math.max(1, Math.floor(deck.diffPage() / 2))),
+        },
+        {
+          bind: "ctrl+u",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffScrollBy(-Math.max(1, Math.floor(deck.diffPage() / 2))),
+        },
+        // Hunk/top/bottom jumps: the view owns row indexes, so these send a
+        // jump request the view consumes.
+        {
+          bind: "n",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffJump("next-hunk"),
+        },
+        {
+          bind: "p",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffJump("prev-hunk"),
+        },
+        {
+          bind: "g",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffJump("top"),
+        },
+        {
+          bind: "shift+g",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffJump("bottom"),
+        },
       ],
     }))
 

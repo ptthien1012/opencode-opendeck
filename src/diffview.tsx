@@ -1,10 +1,11 @@
 /** @jsxImportSource @opentui/solid */
 // Full-screen diff view (plugin route "opendeck-diff"): files changed in a
 // session on the left (status glyph, +adds -dels), the selected file's patch
-// with coloured +/- lines on the right, split by a faint `│` separator.
-// Reached with `f` from the Opendeck full view or deck.openDiff(file?); j/k
-// moves the selection, esc/q returns to the full view. Borderless Grok-CLI
-// style (see ui.tsx).
+// on the right — side-by-side before/after by default, `s` toggles unified.
+// Scroll: space/b (page), ctrl+d/u (half page), mouse wheel; n/p jump between
+// hunks (click a hunk header to jump to it), g/G top/bottom; j/k moves the
+// file selection, esc/q returns to the full view. Borderless Grok-CLI style
+// (see ui.tsx). All view state lives on the deck so the keymap can drive it.
 // No animations — this file creates no timers and never touches the ticker.
 
 import type { FileDiffInfo } from "@opencode/client"
@@ -12,7 +13,7 @@ import { usePlugin } from "@opencode/plugin/tui"
 import type { BoxRenderable, RGBA } from "@opentui/core"
 import { createEffect, createMemo, createResource, createSignal, For, onMount, Show } from "solid-js"
 import { maskSecrets, truncate } from "./format.js"
-import { diffFromTools } from "./metrics.js"
+import { diffFromTools, splitPatch, type SplitCell, type SplitRow } from "./metrics.js"
 import { collectToolParts } from "./shared.js"
 import type { Deck } from "./state.js"
 import { KeyHints, Marker, Rule, glyph } from "./ui.js"
@@ -82,7 +83,7 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
     // keep trying while the family's edit parts are still hydrating
     const index = list().findIndex((file) => file.file === props.file)
     if (index >= 0) {
-      props.deck.setDiffSel(index)
+      props.deck.diffSelect(index)
       initialisedFor = sid
     }
   })
@@ -100,33 +101,161 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
   const listW = createMemo(() => Math.min(40, Math.floor((W() * 35) / 100)))
   // list column + 1-char `│` separator column + two 1-char gaps.
   const rightW = createMemo(() => Math.max(24, W() - listW() - 3))
-  const maxLines = createMemo(() => Math.max(4, H() - 6))
-  const visibleFiles = createMemo(() => list().slice(0, maxLines()))
+  // Page = header (2) + blank margin (1) + key hints (2) + slack (1).
+  const page = createMemo(() => Math.max(4, H() - 6))
 
-  // Patch lines, secret-masked before they reach the screen. Row objects keep
-  // For's referential keying happy when a patch repeats the same line text.
-  const patchLines = createMemo(() => {
-    const file = selected()
-    if (!file) return [] as { id: number; text: string }[]
-    return maskSecrets(file.patch)
-      .split("\n")
-      .map((text, id) => ({ id, text }))
+  // Publish the visible page size so the keymap scrolls by real pages.
+  createEffect(() => {
+    props.deck.setDiffPage(page())
   })
-  const visiblePatch = createMemo(() => patchLines().slice(0, maxLines()))
-  const hiddenPatch = createMemo(() => Math.max(0, patchLines().length - maxLines()))
+
+  // Split rows for the selected file. The patch is secret-masked once per
+  // file (this memo recomputes only when the selected file object changes),
+  // never per render.
+  const split = createMemo((): { rows: SplitRow[]; hunks: number[] } => {
+    const file = selected()
+    if (!file) return { rows: [], hunks: [] }
+    return splitPatch(maskSecrets(file.patch))
+  })
+
+  // Display rows per view mode. Split mode drops "Index:"/"===" noise and
+  // folds each `--- a/x` + `+++ b/y` header pair into one faint `a/x → b/y`
+  // row. Unified mode re-expands paired del/add rows into separate -/+ lines.
+  // Hunk row indexes are rebuilt for the display array so jump targets stay
+  // correct after filtering/expansion.
+  const display = createMemo((): { rows: SplitRow[]; hunks: number[] } => {
+    const { rows } = split()
+    const mode = props.deck.diffView()
+    const out: SplitRow[] = []
+    const hunks: number[] = []
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]!
+      if (row.type === "hunk") {
+        hunks.push(out.length)
+        out.push(row)
+        continue
+      }
+      if (row.type === "file") {
+        if (mode === "split") {
+          const next = rows[i + 1]
+          if (row.text.startsWith("--- ") && next?.type === "file" && next.text.startsWith("+++ ")) {
+            out.push({ type: "file", text: `${row.text.slice(4)} → ${next.text.slice(4)}` })
+            i++
+          }
+          continue
+        }
+        out.push(row)
+        continue
+      }
+      // line row: a del/add pair is one split row but two unified lines
+      if (mode === "unified" && !(row.left && row.right)) {
+        if (row.left) out.push({ type: "line", left: row.left, right: undefined })
+        if (row.right) out.push({ type: "line", left: undefined, right: row.right })
+        continue
+      }
+      out.push(row)
+    }
+    return { rows: out, hunks }
+  })
+
+  // Scroll offset: the deck stores it raw (clamped ≥ 0 there), the view
+  // clamps the upper bound and snaps the stored value back when the content
+  // or terminal shrinks — guarded writes only, so this can never loop.
+  const maxScroll = createMemo(() => Math.max(0, display().rows.length - page()))
+  const scroll = createMemo(() => Math.min(Math.max(0, props.deck.diffScroll()), maxScroll()))
+  createEffect(() => {
+    const clamped = scroll()
+    if (clamped !== props.deck.diffScroll()) props.deck.setDiffScroll(clamped)
+  })
+  const visibleRows = createMemo(() => display().rows.slice(scroll(), scroll() + page()))
+
+  // Hunk/top/bottom jump requests from the keymap (or future callers): seq
+  // is the only trigger; display()/scroll() changes alone never re-jump.
+  let lastJumpSeq = 0
+  createEffect(() => {
+    const req = props.deck.diffJumpReq()
+    if (req.seq === lastJumpSeq) return
+    lastJumpSeq = req.seq
+    const hunks = display().hunks
+    const max = maxScroll()
+    const at = scroll()
+    let target: number | undefined
+    if (req.target === "top") target = 0
+    else if (req.target === "bottom") target = max
+    else if (req.target === "next-hunk") target = hunks.find((h) => h > at)
+    else target = hunks.filter((h) => h < at).pop()
+    if (target !== undefined) props.deck.setDiffScroll(Math.min(target, max))
+  })
+
+  // File list window: first visible index lives on the deck (mouse wheel
+  // moves it), clamped here. The selection is kept visible by nudging the
+  // window only when j/k (or a click) moves it outside — never otherwise,
+  // so the effect can't fight manual wheel scrolling.
+  const maxListTop = createMemo(() => Math.max(0, list().length - page()))
+  const listTop = createMemo(() => Math.min(Math.max(0, props.deck.diffListTop()), maxListTop()))
+  createEffect(() => {
+    const count = list().length
+    if (count === 0) {
+      if (props.deck.diffListTop() !== 0) props.deck.setDiffListTop(0)
+      return
+    }
+    const s = sel()
+    const span = page()
+    let next = listTop()
+    if (s < next) next = s
+    else if (s >= next + span) next = s - span + 1
+    next = Math.max(0, Math.min(maxListTop(), next))
+    if (next !== props.deck.diffListTop()) props.deck.setDiffListTop(next)
+  })
+  const visibleFiles = createMemo(() => list().slice(listTop(), listTop() + page()))
+
+  // Footer under the patch: visible range + which hunk the window starts in.
+  const footer = createMemo(() => {
+    const total = display().rows.length
+    if (total === 0) return ""
+    const from = scroll() + 1
+    const to = Math.min(total, scroll() + page())
+    const hunks = display().hunks
+    if (hunks.length === 0) return `rows ${from}–${to} of ${total}`
+    const current = hunks.filter((h) => h <= scroll()).length
+    const label = current === 0 ? "–" : String(Math.min(current, hunks.length))
+    return `rows ${from}–${to} of ${total} · hunk ${label}/${hunks.length}`
+  })
+
   // Rows the faint `│` separator column needs to cover both columns.
   const separatorRows = createMemo(() => {
-    const right = visiblePatch().length + (hiddenPatch() > 0 ? 1 : 0)
+    const right = visibleRows().length + (footer() ? 1 : 0)
     return Array.from({ length: Math.max(visibleFiles().length, right) }, (_, index) => index)
   })
 
-  function lineColor(line: string): RGBA {
+  // Split halves: equal width with a faint `│` between. Gutter is 4-wide
+  // right-aligned plus one space inside each half.
+  const halfW = createMemo(() => Math.max(12, Math.floor((rightW() - 1) / 2)))
+  const halfTextW = createMemo(() => Math.max(1, halfW() - 5))
+
+  function gutter(cell: SplitCell): string {
+    return cell === undefined ? "    " : String(cell.no).padStart(4)
+  }
+
+  function cellColor(cell: SplitCell): RGBA {
     const text = theme().text
-    if (line.startsWith("+++") || line.startsWith("---")) return text.muted
-    if (line.startsWith("+")) return text.feedback.success.base
-    if (line.startsWith("-")) return text.feedback.error.base
-    if (line.startsWith("@@")) return theme().hue.accent[200]
+    if (cell === undefined) return text.faint
+    if (cell.kind === "del") return text.feedback.error.base
+    if (cell.kind === "add") return text.feedback.success.base
     return text.muted
+  }
+
+  // Unified line rows: ` ` context, `-` old-only, `+` new-only.
+  function unifiedPrefix(row: Extract<SplitRow, { type: "line" }>): string {
+    if (row.left && row.right) return " "
+    return row.left ? "-" : "+"
+  }
+
+  function unifiedColor(row: Extract<SplitRow, { type: "line" }>): RGBA {
+    const text = theme().text
+    if (row.left && row.right) return text.muted
+    if (row.left) return text.feedback.error.base
+    return text.feedback.success.base
   }
 
   function glyphColor(file: FileDiffInfo): RGBA {
@@ -136,10 +265,33 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
     return text.feedback.warning.base
   }
 
+  function onPatchScroll(event: { scroll?: { direction: string } }) {
+    const direction = event.scroll?.direction
+    if (direction === "down") props.deck.diffScrollBy(3)
+    else if (direction === "up") props.deck.diffScrollBy(-3)
+  }
+
+  function onListScroll(event: { scroll?: { direction: string } }) {
+    const direction = event.scroll?.direction
+    if (direction !== "down" && direction !== "up") return
+    const next = props.deck.diffListTop() + (direction === "down" ? 1 : -1)
+    props.deck.setDiffListTop(Math.max(0, Math.min(maxListTop(), next)))
+  }
+
   const errorMessage = () => {
     const err = files.error as { message?: unknown }
     return truncate(maskSecrets(String(err?.message ?? files.error)), 80)
   }
+
+  const hints = createMemo(
+    (): [string, string][] => [
+      ["j/k", "file"],
+      ["space/b", "scroll"],
+      ["n/p", "hunk"],
+      ["s", props.deck.diffView() === "split" ? "unified" : "split"],
+      ["esc", "back"],
+    ],
+  )
 
   return (
     <box
@@ -168,7 +320,7 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
               }
             >
               <box flexDirection="column" width="100%" marginBottom={1}>
-                <box flexDirection="row" gap={1}>
+                <box flexDirection="row" gap={1} width="100%">
                   <text wrapMode="none" fg={theme().hue.accent[200]}>
                     <b>{`${glyph.main} opendeck · files changed`}</b>
                   </text>
@@ -176,18 +328,29 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
                   <text wrapMode="none" fg={theme().text.feedback.success.base}>{`+${totals().additions}`}</text>
                   <text wrapMode="none" fg={theme().text.feedback.error.base}>{`-${totals().deletions}`}</text>
                   <text wrapMode="none" fg={theme().text.faint}>{`· from ${useLocal() ? "edits" : "snapshot"}`}</text>
+                  <box flexGrow={1} />
+                  <text wrapMode="none" fg={theme().text.faint}>
+                    {props.deck.diffView()}
+                  </text>
                 </box>
                 <Rule w={W()} />
               </box>
               <box flexDirection="row" gap={1} width="100%">
-                <box flexDirection="column" width={listW()} flexShrink={0} overflow="hidden">
+                <box
+                  flexDirection="column"
+                  width={listW()}
+                  flexShrink={0}
+                  overflow="hidden"
+                  onMouseScroll={onListScroll}
+                >
                   <For each={visibleFiles()}>
                     {(file, index) => {
-                      const active = () => index() === sel()
+                      const absolute = () => listTop() + index()
+                      const active = () => absolute() === sel()
                       const stats = `+${file.additions} -${file.deletions}`
                       const pathW = () => Math.max(8, listW() - stats.length - 6)
                       return (
-                        <box flexDirection="row" onMouseDown={() => props.deck.setDiffSel(index())}>
+                        <box flexDirection="row" onMouseDown={() => props.deck.diffSelect(absolute())}>
                           <Show
                             when={active()}
                             fallback={<text wrapMode="none" flexShrink={0} fg={theme().text.faint}>{" "}</text>}
@@ -214,20 +377,72 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
                     )}
                   </For>
                 </box>
-                <box flexDirection="column" flexGrow={1} overflow="hidden">
-                  <For each={visiblePatch()}>
-                    {(row) => (
-                      <text wrapMode="none" fg={lineColor(row.text)}>
-                        {truncate(row.text, rightW())}
-                      </text>
-                    )}
+                <box flexDirection="column" flexGrow={1} overflow="hidden" onMouseScroll={onPatchScroll}>
+                  <For each={visibleRows()}>
+                    {(row, index) => {
+                      const absolute = () => scroll() + index()
+                      if (row.type === "hunk") {
+                        return (
+                          <box flexDirection="row" onMouseDown={() => props.deck.setDiffScroll(absolute())}>
+                            <text wrapMode="none" fg={theme().hue.accent[200]}>
+                              {truncate(row.text, rightW())}
+                            </text>
+                          </box>
+                        )
+                      }
+                      if (row.type === "file") {
+                        return (
+                          <text wrapMode="none" fg={theme().text.faint}>
+                            {truncate(row.text, rightW())}
+                          </text>
+                        )
+                      }
+                      if (props.deck.diffView() === "unified") {
+                        const cell = row.left ?? row.right
+                        return (
+                          <box flexDirection="row" width={rightW()}>
+                            <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>
+                              {`${gutter(row.left)} ${gutter(row.right)} `}
+                            </text>
+                            <text wrapMode="none" fg={unifiedColor(row)}>
+                              {truncate(`${unifiedPrefix(row)}${cell?.text ?? ""}`, Math.max(8, rightW() - 11))}
+                            </text>
+                          </box>
+                        )
+                      }
+                      return (
+                        <box flexDirection="row" width={rightW()}>
+                          <box flexDirection="row" width={halfW()} flexShrink={0} overflow="hidden">
+                            <text wrapMode="none" fg={theme().text.faint}>
+                              {`${gutter(row.left)} `}
+                            </text>
+                            <text wrapMode="none" fg={cellColor(row.left)}>
+                              {truncate(row.left?.text ?? "", halfTextW())}
+                            </text>
+                          </box>
+                          <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>
+                            │
+                          </text>
+                          <box flexDirection="row" width={halfW()} flexShrink={0} overflow="hidden">
+                            <text wrapMode="none" fg={theme().text.faint}>
+                              {`${gutter(row.right)} `}
+                            </text>
+                            <text wrapMode="none" fg={cellColor(row.right)}>
+                              {truncate(row.right?.text ?? "", halfTextW())}
+                            </text>
+                          </box>
+                        </box>
+                      )
+                    }}
                   </For>
-                  <Show when={hiddenPatch() > 0}>
-                    <text wrapMode="none" fg={theme().text.faint}>{`… ${hiddenPatch()} more lines`}</text>
+                  <Show when={footer()}>
+                    <text wrapMode="none" fg={theme().text.faint}>
+                      {footer()}
+                    </text>
                   </Show>
                 </box>
               </box>
-              <KeyHints items={[["j/k", "select"], ["esc", "back"]]} w={W()} />
+              <KeyHints items={hints()} w={W()} />
             </Show>
           </Show>
         </Show>
