@@ -10,33 +10,13 @@ import { formatClock, formatTokens, maskSecrets, truncate } from "./format.js"
 import { cacheShare, diffFromTools, filesTouched, formatDuration, hbar, recentErrors, sessionStats, sparkline, turnSeries } from "./metrics.js"
 import { agentName, assistantMessages, collectToolParts, openSessionSafe, sessionTokens } from "./shared.js"
 import type { Deck } from "./state.js"
+import { Section } from "./ui.js"
 
 const ERROR_ROWS = 4
 const FILE_ROWS = 6
 const AGENT_BARS = 6
 
 type PanelProps = { deck: Deck; sessionID: string; w: number }
-
-/** Bordered panel shell shared by every panel in this file. */
-function Panel(props: { title: string; right?: string; w: number; children: unknown }) {
-  const context = usePlugin()
-  const theme = () => context.theme
-  return (
-    <box flexDirection="column" border borderStyle="rounded" borderColor={theme().text.faint} paddingX={1} width={props.w} marginBottom={1}>
-      <box flexDirection="row" justifyContent="space-between" width="100%">
-        <text wrapMode="none" fg={theme().text.base}>
-          <b>{props.title}</b>
-        </text>
-        <Show when={props.right}>
-          <text wrapMode="none" fg={theme().text.muted} flexShrink={0}>
-            {props.right}
-          </text>
-        </Show>
-      </box>
-      {props.children as any}
-    </box>
-  )
-}
 
 /** Sparklines of input/output tokens and ctx % per assistant turn (main session). */
 export function ChartsPanel(props: PanelProps) {
@@ -49,7 +29,7 @@ export function ChartsPanel(props: PanelProps) {
     return props.deck.modelLimit(model ? { id: model.id, providerID: model.providerID } : undefined)
   })
   const labelW = 7
-  const chartW = createMemo(() => Math.max(8, props.w - 4 - labelW - 8))
+  const chartW = createMemo(() => Math.max(8, props.w - 2 - labelW - 8))
   const last = createMemo(() => turns().at(-1))
   const ctxPct = createMemo(() => {
     const max = limit()
@@ -58,7 +38,7 @@ export function ChartsPanel(props: PanelProps) {
 
   return (
     <Show when={turns().length > 0}>
-      <Panel title="charts · per turn" right={`${turns().length} turns`} w={props.w}>
+      <Section title="charts" right={`${turns().length} turns`} w={props.w}>
         <box flexDirection="row" gap={1}>
           <text wrapMode="none" fg={theme().text.muted} width={labelW} flexShrink={0}>in</text>
           <text wrapMode="none" fg={theme().hue.accent[200]}>{sparkline(turns().map((turn) => turn.input), chartW())}</text>
@@ -78,7 +58,7 @@ export function ChartsPanel(props: PanelProps) {
             <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>{Math.round(ctxPct().at(-1) ?? 0)}%</text>
           </box>
         </Show>
-      </Panel>
+      </Section>
     </Show>
   )
 }
@@ -102,11 +82,11 @@ export function AgentTokensPanel(props: PanelProps) {
   })
   const max = createMemo(() => Math.max(0, ...rows().map((row) => row.total)))
   const labelW = 13
-  const barW = createMemo(() => Math.max(6, props.w - 4 - labelW - 8))
+  const barW = createMemo(() => Math.max(6, props.w - 2 - labelW - 8))
 
   return (
     <Show when={rows().length > 1 && max() > 0}>
-      <Panel title="tokens · per agent" w={props.w}>
+      <Section title="tokens by agent" w={props.w}>
         <For each={rows().slice(0, AGENT_BARS)}>
           {(row, index) => (
             <box flexDirection="row" gap={1} onMouseDown={() => openSessionSafe(context, row.id)}>
@@ -121,7 +101,7 @@ export function AgentTokensPanel(props: PanelProps) {
         <Show when={rows().length > AGENT_BARS}>
           <text wrapMode="none" fg={theme().text.faint}>+{rows().length - AGENT_BARS} more</text>
         </Show>
-      </Panel>
+      </Section>
     </Show>
   )
 }
@@ -132,7 +112,7 @@ export function StatsPanel(props: PanelProps) {
   const theme = () => context.theme
   const stats = createMemo(() => sessionStats(context.data.session.message.list(props.sessionID)))
   const cache = createMemo(() => cacheShare(assistantMessages(context.data.session.message.list(props.sessionID))))
-  const inner = createMemo(() => Math.max(10, props.w - 4))
+  const inner = createMemo(() => Math.max(10, props.w - 2))
   const line1 = createMemo(() => {
     const s = stats()
     return `${formatDuration(s.durationMs)} · ${s.prompts} prompts · ${s.replies} replies`
@@ -147,10 +127,10 @@ export function StatsPanel(props: PanelProps) {
 
   return (
     <Show when={stats().replies > 0}>
-      <Panel title="session" right={stats().compactions > 0 ? `${stats().compactions} compactions` : undefined} w={props.w}>
+      <Section title="session" right={stats().compactions > 0 ? `${stats().compactions} compactions` : undefined} w={props.w}>
         <text wrapMode="none" fg={theme().text.base}>{truncate(line1(), inner())}</text>
         <text wrapMode="none" fg={theme().text.muted}>{truncate(line2(), inner())}</text>
-      </Panel>
+      </Section>
     </Show>
   )
 }
@@ -160,7 +140,7 @@ export function ErrorsPanel(props: PanelProps) {
   const context = usePlugin()
   const theme = () => context.theme
   const errors = createMemo(() => recentErrors(collectToolParts(context, props.deck.familyIds(props.sessionID)), ERROR_ROWS))
-  const inner = createMemo(() => Math.max(10, props.w - 4))
+  const inner = createMemo(() => Math.max(10, props.w - 2))
   const who = (sessionID: string) => {
     if (sessionID === props.sessionID) return "main"
     const session = context.data.session.get(sessionID)
@@ -169,10 +149,7 @@ export function ErrorsPanel(props: PanelProps) {
 
   return (
     <Show when={errors().length > 0}>
-      <box flexDirection="column" border borderStyle="rounded" borderColor={theme().text.feedback.error.muted} paddingX={1} width={props.w} marginBottom={1}>
-        <text wrapMode="none" fg={theme().text.feedback.error.base}>
-          <b>errors</b>
-        </text>
+      <Section title="errors" titleColor={theme().text.feedback.error.base} w={props.w}>
         <For each={errors()}>
           {(error) => (
             <box onMouseDown={() => openSessionSafe(context, error.sessionID)}>
@@ -182,7 +159,7 @@ export function ErrorsPanel(props: PanelProps) {
             </box>
           )}
         </For>
-      </box>
+      </Section>
     </Show>
   )
 }
@@ -214,12 +191,12 @@ export function FilesPanel(props: PanelProps) {
     return out
   })
   const total = createMemo(() => groups().reduce((sum, group) => sum + group.files.length, 0))
-  const inner = createMemo(() => Math.max(10, props.w - 4))
+  const inner = createMemo(() => Math.max(10, props.w - 2))
   const glyph = (status: string) => (status === "added" ? "A" : status === "deleted" ? "D" : "M")
 
   return (
     <Show when={total() > 0}>
-      <Panel title="files changed" right={`${total()} · [f] diff`} w={props.w}>
+      <Section title="files changed" right={`${total()} · f diff`} w={props.w}>
         <For each={groups()}>
           {(group) => (
             <box flexDirection="column">
@@ -248,7 +225,7 @@ export function FilesPanel(props: PanelProps) {
             </box>
           )}
         </For>
-      </Panel>
+      </Section>
     </Show>
   )
 }
