@@ -9,6 +9,7 @@ import {
   recentErrors,
   sessionStats,
   sparkline,
+  splitPatch,
   toolState,
   turnSeries,
 } from "../src/metrics.ts"
@@ -200,5 +201,101 @@ describe("diffFromTools", () => {
     ])
     expect(deleted[0]?.status).toBe("deleted")
     expect(deleted[0]?.patch).toBe("p1")
+  })
+})
+
+describe("splitPatch", () => {
+  test("simple modify: 4 file rows, one hunk, paired del/add, context on both sides", () => {
+    const patch = [
+      "diff --git a/file.txt b/file.txt",
+      "index 1234567..89abcde 100644",
+      "--- a/file.txt",
+      "+++ b/file.txt",
+      "@@ -21,3 +21,3 @@",
+      " line21",
+      "-a",
+      "+b",
+      " line23",
+    ].join("\n")
+    expect(splitPatch(patch)).toEqual({
+      rows: [
+        { type: "file", text: "diff --git a/file.txt b/file.txt" },
+        { type: "file", text: "index 1234567..89abcde 100644" },
+        { type: "file", text: "--- a/file.txt" },
+        { type: "file", text: "+++ b/file.txt" },
+        { type: "hunk", text: "@@ -21,3 +21,3 @@" },
+        { type: "line", left: { no: 21, text: "line21", kind: "ctx" }, right: { no: 21, text: "line21", kind: "ctx" } },
+        { type: "line", left: { no: 22, text: "a", kind: "del" }, right: { no: 22, text: "b", kind: "add" } },
+        { type: "line", left: { no: 23, text: "line23", kind: "ctx" }, right: { no: 23, text: "line23", kind: "ctx" } },
+      ],
+      hunks: [4],
+    })
+  })
+
+  test("uneven runs pair row by row; extra del rows leave the right side undefined", () => {
+    const patch = ["@@ -10,4 +10,3 @@", " ctx", "-x", "-y", "+z", " tail"].join("\n")
+    expect(splitPatch(patch)).toEqual({
+      rows: [
+        { type: "hunk", text: "@@ -10,4 +10,3 @@" },
+        { type: "line", left: { no: 10, text: "ctx", kind: "ctx" }, right: { no: 10, text: "ctx", kind: "ctx" } },
+        { type: "line", left: { no: 11, text: "x", kind: "del" }, right: { no: 11, text: "z", kind: "add" } },
+        { type: "line", left: { no: 12, text: "y", kind: "del" }, right: undefined },
+        { type: "line", left: { no: 13, text: "tail", kind: "ctx" }, right: { no: 12, text: "tail", kind: "ctx" } },
+      ],
+      hunks: [0],
+    })
+  })
+
+  test("pure add hunk: left side stays undefined, right numbers run 1,2", () => {
+    const patch = [
+      "diff --git a/new.txt b/new.txt",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/new.txt",
+      "@@ -0,0 +1,2 @@",
+      "+a",
+      "+b",
+    ].join("\n")
+    const { rows, hunks } = splitPatch(patch)
+    expect(hunks).toEqual([4])
+    expect(rows.length).toBe(7)
+    expect(rows.slice(5)).toEqual([
+      { type: "line", left: undefined, right: { no: 1, text: "a", kind: "add" } },
+      { type: "line", left: undefined, right: { no: 2, text: "b", kind: "add" } },
+    ])
+  })
+
+  test("two hunks give two indexes; '\\ No newline at end of file' is skipped", () => {
+    const patch = [
+      "diff --git a/f.txt b/f.txt",
+      "index 111..222 100644",
+      "--- a/f.txt",
+      "+++ b/f.txt",
+      "@@ -1,3 +1,3 @@",
+      " one",
+      "-two",
+      "+two!",
+      " three",
+      "@@ -8,3 +8,3 @@",
+      " eight",
+      "-nine",
+      "+nine!",
+      " ten",
+      "\\ No newline at end of file",
+    ].join("\n")
+    const { rows, hunks } = splitPatch(patch)
+    expect(hunks).toEqual([4, 8])
+    expect(rows.length).toBe(12)
+    expect(rows[8]).toEqual({ type: "hunk", text: "@@ -8,3 +8,3 @@" })
+    expect(rows[11]).toEqual({
+      type: "line",
+      left: { no: 10, text: "ten", kind: "ctx" },
+      right: { no: 10, text: "ten", kind: "ctx" },
+    })
+    expect(JSON.stringify(rows)).not.toContain("No newline")
+  })
+
+  test("empty patch gives empty rows and hunks", () => {
+    expect(splitPatch("")).toEqual({ rows: [], hunks: [] })
   })
 })

@@ -254,3 +254,104 @@ export function diffFromTools(
   }
   return [...byFile.values()]
 }
+
+/** --- Diff split --------------------------------------------------------- */
+
+/** One side of a side-by-side row: 1-based line number, text without the diff prefix, and kind. */
+export type SplitCell = { no: number; text: string; kind: "ctx" | "del" | "add" } | undefined
+
+export type SplitRow =
+  | { type: "file"; text: string } // "Index:", "===", "---", "+++" header lines
+  | { type: "hunk"; text: string } // "@@ -a,b +c,d @@ ..." line
+  | { type: "line"; left: SplitCell; right: SplitCell }
+
+/** Side-by-side view of a unified diff: all rows plus the row indexes of "hunk" rows. */
+export type SplitPatch = { rows: SplitRow[]; hunks: number[] }
+
+const HUNK_HEADER_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
+
+/**
+ * Pure unified-diff → side-by-side conversion. Lines outside hunks (headers
+ * before the first "@@" of a file, or once a hunk's line counts are used up)
+ * become "file" rows; "@@" lines become "hunk" rows and their row indexes are
+ * collected in `hunks`. Hunk content becomes "line" rows: context lines show
+ * on both sides with running old/new numbers, and a run of "-" lines followed
+ * by a run of "+" lines is paired row by row — the longer side's extra rows
+ * leave the other side undefined, as do lone runs. "\ No newline at end of
+ * file" markers are skipped; concatenated multi-file patches are supported,
+ * with numbering restarting at each hunk header.
+ */
+export function splitPatch(patch: string): SplitPatch {
+  const rows: SplitRow[] = []
+  const hunks: number[] = []
+  const lines = patch.split("\n")
+  const end = lines.length > 0 && lines[lines.length - 1] === "" ? lines.length - 1 : lines.length
+  let sawHunk = false
+  let oldNo = 0
+  let newNo = 0
+  let oldLeft = 0 // old-side lines still expected by the current hunk header
+  let newLeft = 0
+  let i = 0
+  while (i < end) {
+    const line = lines[i]!
+    const header = HUNK_HEADER_RE.exec(line)
+    if (header) {
+      rows.push({ type: "hunk", text: line })
+      hunks.push(rows.length - 1)
+      sawHunk = true
+      oldNo = Number(header[1] ?? 0)
+      newNo = Number(header[3] ?? 0)
+      oldLeft = header[2] !== undefined ? Number(header[2]) : 1
+      newLeft = header[4] !== undefined ? Number(header[4]) : 1
+      i++
+    } else if (sawHunk && line.startsWith("\\")) {
+      i++ // "\ No newline at end of file"
+    } else if (oldLeft > 0 || newLeft > 0) {
+      if (line === "" || line.startsWith(" ")) {
+        rows.push({
+          type: "line",
+          left: { no: oldNo++, text: line.slice(1), kind: "ctx" },
+          right: { no: newNo++, text: line.slice(1), kind: "ctx" },
+        })
+        oldLeft--
+        newLeft--
+        i++
+        continue
+      }
+      const dels: string[] = []
+      while (i < end && lines[i]!.startsWith("-")) {
+        dels.push(lines[i]!)
+        i++
+      }
+      while (i < end && lines[i]!.startsWith("\\")) i++ // old side ended without a newline
+      const adds: string[] = []
+      while (i < end && lines[i]!.startsWith("+")) {
+        adds.push(lines[i]!)
+        i++
+      }
+      if (dels.length === 0 && adds.length === 0) {
+        // unexpected content line inside a hunk: treat it as context
+        rows.push({
+          type: "line",
+          left: { no: oldNo++, text: line.slice(1), kind: "ctx" },
+          right: { no: newNo++, text: line.slice(1), kind: "ctx" },
+        })
+        oldLeft--
+        newLeft--
+        i++
+        continue
+      }
+      for (let j = 0; j < Math.max(dels.length, adds.length); j++) {
+        const left: SplitCell = j < dels.length ? { no: oldNo++, text: dels[j]!.slice(1), kind: "del" } : undefined
+        const right: SplitCell = j < adds.length ? { no: newNo++, text: adds[j]!.slice(1), kind: "add" } : undefined
+        rows.push({ type: "line", left, right })
+      }
+      oldLeft -= dels.length
+      newLeft -= adds.length
+    } else {
+      rows.push({ type: "file", text: line })
+      i++
+    }
+  }
+  return { rows, hunks }
+}
