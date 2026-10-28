@@ -11,7 +11,7 @@
 import type { FileDiffInfo } from "@opencode/client"
 import { usePlugin } from "@opencode/plugin/tui"
 import type { BoxRenderable, RGBA } from "@opentui/core"
-import { createEffect, createMemo, createResource, createSignal, For, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, onMount, Show, untrack } from "solid-js"
 import { maskSecrets, truncate } from "./format.js"
 import { diffFromTools, splitPatch, type SplitCell, type SplitRow } from "./metrics.js"
 import { collectToolParts } from "./shared.js"
@@ -148,12 +148,14 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
         continue
       }
       // line row: a del/add pair is one split row but two unified lines
-      if (mode === "unified" && !(row.left && row.right)) {
+      if (mode === "unified" && !(row.left?.kind === "ctx" && row.right?.kind === "ctx")) {
         if (row.left) out.push({ type: "line", left: row.left, right: undefined })
         if (row.right) out.push({ type: "line", left: undefined, right: row.right })
         continue
       }
-      out.push(row)
+      // fresh object per mode: For keys rows by reference, so a reused row
+      // would keep the previous mode's layout after `s`
+      out.push(mode === "unified" ? { ...row } : row)
     }
     return { rows: out, hunks }
   })
@@ -171,7 +173,7 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
 
   // Hunk/top/bottom jump requests from the keymap (or future callers): seq
   // is the only trigger; display()/scroll() changes alone never re-jump.
-  let lastJumpSeq = 0
+  let lastJumpSeq = untrack(() => props.deck.diffJumpReq().seq)
   createEffect(() => {
     const req = props.deck.diffJumpReq()
     if (req.seq === lastJumpSeq) return
@@ -196,16 +198,16 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
   createEffect(() => {
     const count = list().length
     if (count === 0) {
-      if (props.deck.diffListTop() !== 0) props.deck.setDiffListTop(0)
+      if (untrack(() => props.deck.diffListTop()) !== 0) props.deck.setDiffListTop(0)
       return
     }
     const s = sel()
     const span = page()
-    let next = listTop()
+    let next = untrack(() => listTop())
     if (s < next) next = s
     else if (s >= next + span) next = s - span + 1
     next = Math.max(0, Math.min(maxListTop(), next))
-    if (next !== props.deck.diffListTop()) props.deck.setDiffListTop(next)
+    if (next !== untrack(() => props.deck.diffListTop())) props.deck.setDiffListTop(next)
   })
   const visibleFiles = createMemo(() => list().slice(listTop(), listTop() + page()))
 
