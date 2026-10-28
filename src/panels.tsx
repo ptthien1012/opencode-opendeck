@@ -7,10 +7,10 @@
 import { usePlugin } from "@opencode/plugin/tui"
 import { createMemo, For, Show } from "solid-js"
 import { formatClock, formatTokens, maskSecrets, shortPath, truncate } from "./format.js"
-import { cacheShare, diffFromTools, filesTouched, formatDuration, hbar, recentErrors, sessionStats, sparkline, turnSeries } from "./metrics.js"
+import { cacheShare, diffFromTools, filesTouched, formatDuration, recentErrors, sessionStats, sparkline, turnSeries } from "./metrics.js"
 import { agentName, assistantMessages, collectToolParts, sessionTokens } from "./shared.js"
 import type { Deck } from "./state.js"
-import { Section } from "./ui.js"
+import { agentColor, bar, Section } from "./ui.js"
 
 const ERROR_ROWS = 4
 const FILE_ROWS = 6
@@ -82,19 +82,22 @@ export function AgentTokensPanel(props: PanelProps) {
   })
   const max = createMemo(() => Math.max(0, ...rows().map((row) => row.total)))
   const labelW = 13
-  const barW = createMemo(() => Math.max(6, props.w - 2 - labelW - 8))
+  const totalW = 7
+  const barW = createMemo(() => Math.max(6, props.w - 2 - labelW - totalW - 2))
 
   return (
     <Show when={rows().length > 1 && max() > 0}>
       <Section title="tokens by agent" w={props.w}>
         <For each={rows().slice(0, AGENT_BARS)}>
-          {(row, index) => (
+          {(row) => (
             <box flexDirection="row" gap={1} onMouseDown={() => props.deck.diveInto(row.id)}>
-              <text wrapMode="none" fg={index() === 0 ? theme().hue.accent[200] : theme().text.base} width={labelW} flexShrink={0}>
+              <text wrapMode="none" fg={agentColor(theme(), row.id)} width={labelW} flexShrink={0}>
                 {truncate(row.label, labelW - 1)}
               </text>
-              <text wrapMode="none" fg={index() === 0 ? theme().hue.accent[200] : theme().text.muted}>{hbar(row.total, max(), barW())}</text>
-              <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>{formatTokens(row.total)}</text>
+              <text wrapMode="none" fg={theme().text.faint} width={totalW} flexShrink={0}>
+                {formatTokens(row.total).padStart(totalW)}
+              </text>
+              {bar(row.total, max(), barW(), agentColor(theme(), row.id), theme().text.faint)}
             </box>
           )}
         </For>
@@ -200,7 +203,7 @@ export function FilesPanel(props: PanelProps) {
         <For each={groups()}>
           {(group) => (
             <box flexDirection="column">
-              <text wrapMode="none" fg={theme().hue.accent[200]}>{truncate(`${group.who} (${group.files.length})`, inner())}</text>
+              <text wrapMode="none" fg={agentColor(theme(), group.id)}>{truncate(`${group.who} (${group.files.length})`, inner())}</text>
               <For each={group.files.slice(-FILE_ROWS)}>
                 {(entry) => {
                   const counts = entry.adds !== undefined ? ` +${entry.adds} -${entry.dels ?? 0}` : ""

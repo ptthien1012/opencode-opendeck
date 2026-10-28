@@ -1,8 +1,9 @@
 /** @jsxImportSource @opentui/solid */
 // Shared Grok-CLI-style UI primitives: borderless sections headed by a title
-// rule line, ▰▱ gauges, ▌ status markers and one-line key hints. Minimal and
-// monochrome — text.base/muted/faint plus a single accent (hue.accent[200]).
-// Pure presentation over the host theme: no timers, no state, no writes.
+// rule line, ▰▱ gauges, █░ bars, ▌ status markers and one-line key hints.
+// Calm base — text.base/muted/faint — with a single accent and one stable
+// categorical colour per agent (agentColor). Pure presentation over the host
+// theme: no timers, no state, no writes.
 
 import { usePlugin } from "@opencode/plugin/tui"
 import type { RGBA } from "@opentui/core"
@@ -11,9 +12,27 @@ import type { JSX } from "solid-js"
 import { truncate } from "./format.js"
 
 /**
+ * Stable per-agent colour: sum of the id's char codes modulo the theme's
+ * categorical palette, so one agent keeps one colour across every view.
+ * Falls back to the accent scale when the theme ships no categorical hues;
+ * `step` picks the brightness within the scale.
+ */
+export function agentColor(
+  theme: ReturnType<typeof usePlugin>["theme"],
+  id: string,
+  step: "200" | "400" = "400",
+): RGBA {
+  const palette = theme.categorical
+  if (palette.length === 0) return theme.hue.accent[step]
+  let hash = 0
+  for (let index = 0; index < id.length; index++) hash += id.charCodeAt(index)
+  return palette[hash % palette.length]![step]
+}
+
+/**
  * A section = `── title ──────── right` rule line, then children indented by
  * 2 spaces. Title is bold text.base (accent when props.accent, or an explicit
- * titleColor), rule chars are faint, right label muted. Total header width is
+ * titleColor), rule chars are faint, right label faint. Total header width is
  * exactly props.w; rule length = w - title - right - spacing (min 1).
  */
 export function Section(props: {
@@ -41,7 +60,7 @@ export function Section(props: {
         </text>
         <text wrapMode="none" fg={theme().text.faint}>{` ${"─".repeat(rule())}`}</text>
         <Show when={props.right}>
-          <text wrapMode="none" fg={theme().text.muted}>
+          <text wrapMode="none" fg={theme().text.faint}>
             {rightText()}
           </text>
         </Show>
@@ -90,6 +109,34 @@ export function Gauge(props: { ratio: number | undefined; cells: number }) {
       </Show>
       <Show when={cells() - filled() > 0}>
         <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>{"▱".repeat(cells() - filled())}</text>
+      </Show>
+    </box>
+  )
+}
+
+/**
+ * `█…░…` bar of `width` cells (capped at 20) as a two-text row: filled cells
+ * in `color`, the rest in `dim`. Any value > 0 fills at least one cell.
+ * Called as a plain function (`{bar(...)}`), not a component.
+ */
+export function bar(value: number, max: number, width: number, color: RGBA, dim: RGBA): JSX.Element {
+  const cells = Math.min(20, Math.max(0, Math.floor(width)))
+  const ratio = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0
+  let filled = Math.round(ratio * cells)
+  if (value > 0 && filled === 0 && cells > 0) filled = 1
+  return (
+    // fixed width: same reasoning as Gauge — the box pins the bar to exactly
+    // `cells` columns so trailing columns line up either way
+    <box flexDirection="row" width={cells} flexShrink={0}>
+      <Show when={filled > 0}>
+        <text wrapMode="none" flexShrink={0} fg={color}>
+          {"█".repeat(filled)}
+        </text>
+      </Show>
+      <Show when={cells - filled > 0}>
+        <text wrapMode="none" flexShrink={0} fg={dim}>
+          {"░".repeat(cells - filled)}
+        </text>
       </Show>
     </box>
   )

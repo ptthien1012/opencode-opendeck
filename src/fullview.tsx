@@ -24,7 +24,7 @@ import { cacheShare, formatDuration, hbar, toolState } from "./metrics.js"
 import { AgentTokensPanel, ChartsPanel, ErrorsPanel, FilesPanel, StatsPanel } from "./panels.js"
 import { agentLabel, agentName, assistantMessages, collectToolParts, collapseRows, lastActive, sessionTokens, toolCallCounts, useAgentState, useContextStats, usePermRecords } from "./shared.js"
 import type { MergedPerm } from "./shared.js"
-import { Gauge, glyph, KeyHints, Marker, Rule, Section } from "./ui.js"
+import { agentColor, Gauge, glyph, KeyHints, Marker, Rule, Section } from "./ui.js"
 
 const MAX_CARDS = 6
 const LANE_LIMIT = 10
@@ -295,7 +295,7 @@ function Timeline(props: { deck: Deck; sessionID: string; w: number; rows: numbe
                 <text wrapMode="none" fg={theme().text.faint} width={clockW} flexShrink={0}>
                   {formatClock(part.time.created)}
                 </text>
-                <text wrapMode="none" fg={row.item.main ? theme().hue.accent[200] : theme().text.base} width={whoW} flexShrink={0}>
+                <text wrapMode="none" fg={row.item.main ? theme().hue.accent[200] : agentColor(theme(), row.item.sessionID)} width={whoW} flexShrink={0}>
                   {truncate(row.item.who, whoW - 1)}
                 </text>
                 <text wrapMode="none" fg={iconColor()}>{iconGlyph()}</text>
@@ -340,12 +340,12 @@ function MainCard(props: { deck: Deck; session: SessionInfo; w: number }) {
     <box flexDirection="column" width={props.w} onMouseDown={() => props.deck.diveInto(props.session.id)}>
       <box flexDirection="row" justifyContent="space-between" width="100%">
         <box flexDirection="row">
-          <Marker color={running() ? theme().hue.accent[200] : theme().text.faint} />
-          <text wrapMode="none" fg={theme().hue.accent[200]}>
+          <Marker color={running() ? agentColor(theme(), props.session.id) : theme().text.faint} />
+          <text wrapMode="none" fg={agentColor(theme(), props.session.id)}>
             <b>{truncate(` ${glyph.main} ${props.session.agent ?? "main"} · ${shortModel(agent.model()?.id, 14)}`, Math.max(8, inner() - right().length - 2))}</b>
           </text>
         </box>
-        <text wrapMode="none" fg={running() ? theme().hue.accent[200] : theme().text.muted} flexShrink={0}>
+        <text wrapMode="none" fg={running() ? agentColor(theme(), props.session.id) : theme().text.muted} flexShrink={0}>
           {right()}
         </text>
       </box>
@@ -399,8 +399,8 @@ function TreeAgent(props: { deck: Deck; session: SessionInfo; w: number; last: b
       <box flexDirection="row" justifyContent="space-between" width="100%">
         <box flexDirection="row">
           <text wrapMode="none" fg={theme().text.faint}>{branch()}</text>
-          <Marker color={agent.statusColor()} />
-          <text wrapMode="none" fg={theme().text.base}>
+          <Marker color={agentColor(theme(), props.session.id)} />
+          <text wrapMode="none" fg={agentColor(theme(), props.session.id)}>
             {truncate(` ${label()} · ${model()}`, Math.max(8, props.w - 3 - clock().length - 1))}
           </text>
         </box>
@@ -415,24 +415,30 @@ function TreeAgent(props: { deck: Deck; session: SessionInfo; w: number; last: b
 }
 
 /** Compact one-line row for a finished (done/errored) subagent:
- * `✓ name · task · model · in/out tokens · duration`, truncated to fit. */
+ * `✓ name · task · model · in/out tokens · duration`, truncated to fit.
+ * Mark + name carry the agent's colour; the model/tokens/duration tail stays
+ * muted (all error.base for a failed agent). */
 function DoneRow(props: { deck: Deck; session: SessionInfo; w: number }) {
   const context = usePlugin()
   const theme = () => context.theme
   const agent = useAgentState(props.deck, props.session)
   const failed = createMemo(() => agent.status() === "error")
-  const line = createMemo(() => {
+  const parts = createMemo(() => {
     const mark = failed() ? "✗" : "✓"
     const duration = agent.elapsedMs() !== undefined ? formatDuration(agent.elapsedMs()!) : "-"
     const tail = ` · ${shortModel(agent.model()?.id, 12)} · in ${formatTokens(agent.tokens().input)} · out ${formatTokens(agent.tokens().output)} · ${duration}`
     // Label first so a long task never pushes the model/tokens/duration off.
     const label = agentLabel(props.session, Math.max(8, props.w - 2 - mark.length - 1 - tail.length))
-    return truncate(`${mark} ${label}${tail}`, Math.max(8, props.w - 2))
+    return { mark, label, tail }
   })
+  const color = createMemo(() => (failed() ? theme().text.feedback.error.base : agentColor(theme(), props.session.id)))
   return (
-    <box onMouseDown={() => props.deck.diveInto(props.session.id)}>
+    <box flexDirection="row" onMouseDown={() => props.deck.diveInto(props.session.id)}>
+      <text wrapMode="none" fg={color()}>
+        {`${parts().mark} ${parts().label}`}
+      </text>
       <text wrapMode="none" fg={failed() ? theme().text.feedback.error.base : theme().text.muted}>
-        {line()}
+        {parts().tail}
       </text>
     </box>
   )
