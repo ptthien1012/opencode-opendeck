@@ -36,6 +36,11 @@ export function createDeck(context: Context) {
     // session it was opened from, so close lands back where the user was.
     const [full, setFull] = createSignal(false)
     const [lastRoot, setLastRoot] = createSignal<string | undefined>(undefined)
+    // Diff page (plugin route "opendeck-diff"): open flag + raw selected file
+    // index (the view clamps it to the loaded list). No animations there, so
+    // the diff page never needs the ticker.
+    const [diffOpen, setDiffOpen] = createSignal(false)
+    const [diffSel, setDiffSel] = createSignal(0)
     // Bounce-back: root session to re-open the full view on, set when the
     // user dives into a subagent straight from the full view. The sidebar
     // shows a "back to Opendeck" link while this is armed.
@@ -197,6 +202,8 @@ export function createDeck(context: Context) {
       cancelled = true
       popMode?.()
       popMode = undefined
+      popDiffMode?.()
+      popDiffMode = undefined
       stopTicker()
       offAsked()
       offReplied()
@@ -211,6 +218,18 @@ export function createDeck(context: Context) {
       } else {
         popMode?.()
         popMode = undefined
+      }
+    })
+
+    // Same scoping for the diff page: its esc/q/j/k layer only lives while the
+    // diff route is current.
+    let popDiffMode: (() => void) | undefined
+    createEffect(() => {
+      if (diffOpen()) {
+        if (!popDiffMode) popDiffMode = context.keymap.mode.push("opendeck-diff")
+      } else {
+        popDiffMode?.()
+        popDiffMode = undefined
       }
     })
 
@@ -247,6 +266,7 @@ export function createDeck(context: Context) {
       }
       const fromFullview = prevRoute !== undefined && prevRoute.type === "plugin" && prevRoute.name === "opendeck"
       setFull(route.type === "plugin" && route.name === "opendeck")
+      setDiffOpen(route.type === "plugin" && route.name === "opendeck-diff")
       if (route.type === "session") {
         let root = ""
         try {
@@ -386,7 +406,15 @@ export function createDeck(context: Context) {
         return lastRoot() ?? rootSessionID()
       },
       openFullview() {
-        const id = rootSessionID()
+        // From another plugin page (e.g. the diff view) keep the root being
+        // viewed; from a session route follow that session's root.
+        let onPlugin = false
+        try {
+          onPlugin = context.ui.router.current().type === "plugin"
+        } catch {
+          onPlugin = false
+        }
+        const id = (onPlugin ? lastRoot() : undefined) ?? rootSessionID()
         if (id) setLastRoot(id)
         // Any explicit open satisfies (or replaces) a pending bounce-back.
         setReturnTo(undefined)
@@ -411,6 +439,36 @@ export function createDeck(context: Context) {
         } catch {
           // nothing to navigate to
         }
+      },
+      /** Whether the diff route is currently shown. */
+      diffOpen,
+      /** Raw selected file index on the diff page; the view clamps to the list. */
+      diffSel,
+      setDiffSel,
+      /** Move the diff file selection by delta; clamping happens in the view. */
+      diffMove(delta: number) {
+        setDiffSel((current) => current + delta)
+      },
+      /** Open the files-changed diff page for the last open root session. */
+      openDiff(file?: string) {
+        const id = lastRoot() ?? rootSessionID()
+        setDiffSel(0)
+        setDiffOpen(true)
+        try {
+          context.ui.router.navigate({
+            type: "plugin",
+            name: "opendeck-diff",
+            data: { sessionID: id, file },
+          })
+        } catch {
+          // host without plugin routes: stay put
+          setDiffOpen(false)
+        }
+      },
+      /** Back from the diff page to the Opendeck full view. */
+      closeDiff() {
+        setDiffOpen(false)
+        deck.openFullview()
       },
       flash,
       /** 0 = not flashing; otherwise 1→0 fade progress (reactive via now()). */

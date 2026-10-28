@@ -2,7 +2,7 @@
 // access, no timers: every function takes plain data and returns plain data,
 // so it is unit-tested with `bun test` (test/metrics.test.ts).
 
-import type { SessionMessageAssistant, SessionMessageAssistantTool, SessionMessageInfo } from "@opencode/client"
+import type { FileDiffInfo, SessionMessageAssistant, SessionMessageAssistantTool, SessionMessageInfo } from "@opencode/client"
 
 /** --- Charts ------------------------------------------------------------- */
 
@@ -210,4 +210,47 @@ export function filesTouched(messages: readonly SessionMessageAssistant[]): stri
     for (const file of message.snapshot?.files ?? []) seen.add(file)
   }
   return [...seen]
+}
+
+/**
+ * Files changed by edit-family tool calls, as FileDiffInfo rows merged per
+ * file path in first-seen order. The server-side session.diff snapshot can be
+ * empty for sessions that edited files, so the diff view derives the same
+ * shape locally from completed tool parts' state.metadata.files. Walked
+ * oldest first (input NOT mutated). Defensive: malformed parts/items are
+ * skipped; patch defaults to "", counts to 0, unknown status to "modified".
+ * Status merge: a first-seen "added" sticks unless a later part "deleted" the
+ * file; otherwise the latest status wins.
+ */
+export function diffFromTools(
+  entries: readonly { part: SessionMessageAssistantTool; sessionID: string }[],
+): FileDiffInfo[] {
+  const oldest = [...entries].sort((a, b) => a.part.time.created - b.part.time.created)
+  const byFile = new Map<string, FileDiffInfo>()
+  for (const { part } of oldest) {
+    if (part.state.status !== "completed") continue
+    const metadata: unknown = part.state.metadata
+    const files = metadata !== null && typeof metadata === "object" ? (metadata as Record<string, unknown>).files : undefined
+    if (!Array.isArray(files)) continue
+    for (const item of files as unknown[]) {
+      if (item === null || typeof item !== "object") continue
+      const raw = item as Record<string, unknown>
+      if (typeof raw.file !== "string" || raw.file.length === 0) continue
+      const patch = typeof raw.patch === "string" ? raw.patch : ""
+      const additions = typeof raw.additions === "number" ? raw.additions : 0
+      const deletions = typeof raw.deletions === "number" ? raw.deletions : 0
+      const status: FileDiffInfo["status"] =
+        raw.status === "added" || raw.status === "deleted" || raw.status === "modified" ? raw.status : "modified"
+      const existing = byFile.get(raw.file)
+      if (!existing) {
+        byFile.set(raw.file, { file: raw.file, patch, additions, deletions, status })
+        continue
+      }
+      existing.additions += additions
+      existing.deletions += deletions
+      if (patch) existing.patch = existing.patch ? `${existing.patch}\n${patch}` : patch
+      existing.status = existing.status === "added" && status !== "deleted" ? "added" : status
+    }
+  }
+  return [...byFile.values()]
 }

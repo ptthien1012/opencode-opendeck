@@ -2,6 +2,7 @@
 import { Plugin, usePlugin } from "@opencode/plugin/tui"
 import { ErrorBoundary } from "solid-js"
 import { maskSecrets, truncate } from "./format.js"
+import { DiffView } from "./diffview.js"
 import { FullView } from "./fullview.js"
 import { Sidebar } from "./sidebar.js"
 import { createDeck } from "./state.js"
@@ -72,9 +73,61 @@ export default Plugin.define({
           run: () => deck.setLanes(!(deck.lanesPref() ?? false)),
         },
         {
+          id: "opendeck.diff",
+          title: "Opendeck: files changed",
+          description: "Open the diff of files changed in this session",
+          group: "Opendeck",
+          bind: "f",
+          enabled: () => deck.isFullRoute(),
+          run: () => deck.openDiff(),
+        },
+        {
           bind: "q",
           enabled: () => deck.isFullRoute(),
           run: () => deck.closeFullview(),
+        },
+      ],
+    }))
+
+    // Diff page keys: scoped to the "opendeck-diff" keymap mode, which the
+    // deck pushes only while the diff route is the current route. One command
+    // per key — `bind` takes a single key string.
+    context.keymap.layer(() => ({
+      mode: "opendeck-diff",
+      commands: [
+        {
+          id: "opendeck.diff.close",
+          title: "Opendeck: back from diff",
+          description: "Return from the diff view to the Opendeck full view",
+          group: "Opendeck",
+          bind: "escape",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.closeDiff(),
+        },
+        {
+          bind: "q",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.closeDiff(),
+        },
+        {
+          bind: "j",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffMove(1),
+        },
+        {
+          bind: "down",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffMove(1),
+        },
+        {
+          bind: "k",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffMove(-1),
+        },
+        {
+          bind: "up",
+          enabled: () => deck.diffOpen(),
+          run: () => deck.diffMove(-1),
         },
       ],
     }))
@@ -85,6 +138,20 @@ export default Plugin.define({
       render: ({ data }) => (
         <ErrorBoundary fallback={(err: unknown) => <CrashLine err={err} />}>
           <FullView deck={deck} sessionID={typeof data?.sessionID === "string" ? data.sessionID : undefined} />
+        </ErrorBoundary>
+      ),
+    })
+
+    // Diff page: second plugin route, same crash guard as the full view.
+    const unregisterDiff = context.ui.router.register({
+      name: "opendeck-diff",
+      render: ({ data }) => (
+        <ErrorBoundary fallback={(err: unknown) => <CrashLine err={err} />}>
+          <DiffView
+            deck={deck}
+            sessionID={typeof data?.sessionID === "string" ? data.sessionID : undefined}
+            file={typeof data?.file === "string" ? data.file : undefined}
+          />
         </ErrorBoundary>
       ),
     })
@@ -100,6 +167,7 @@ export default Plugin.define({
 
     return () => {
       unregister()
+      unregisterDiff()
       remove()
       dispose()
     }

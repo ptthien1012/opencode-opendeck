@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   cacheShare,
+  diffFromTools,
   executeTarget,
   filesTouched,
   formatDuration,
@@ -139,5 +140,65 @@ describe("filesTouched", () => {
       assistant({ snapshot: { files: ["b.ts", "c.ts"] } }),
     ]
     expect(filesTouched(messages)).toEqual(["a.ts", "b.ts", "c.ts"])
+  })
+})
+
+describe("diffFromTools", () => {
+  // One completed edit part carrying metadata.files, like the real edit tool.
+  const edit = (files: unknown, created: number, id = "p") => ({
+    sessionID: "s",
+    part: tool("edit", { status: "completed", input: {}, metadata: { files } }, created, id),
+  })
+  test("merges two edits on the same file: sums counts, joins patches", () => {
+    const out = diffFromTools([
+      edit([{ file: "lib/a.dart", patch: "@@ first", additions: 2, deletions: 1, status: "modified" }], 1, "p1"),
+      edit([{ file: "lib/a.dart", patch: "@@ second", additions: 3, deletions: 4, status: "modified" }], 2, "p2"),
+    ])
+    expect(out).toEqual([{ file: "lib/a.dart", patch: "@@ first\n@@ second", additions: 5, deletions: 5, status: "modified" }])
+  })
+  test("skips non-completed parts and parts without metadata.files", () => {
+    const entries = [
+      { sessionID: "s", part: tool("edit", { status: "running", input: {} }, 1, "p1") },
+      { sessionID: "s", part: tool("edit", { status: "streaming", input: "" }, 2, "p2") },
+      { sessionID: "s", part: tool("edit", { status: "completed", input: {} }, 3, "p3") },
+      { sessionID: "s", part: tool("edit", { status: "completed", input: {}, metadata: { truncated: true } }, 4, "p4") },
+      {
+        sessionID: "s",
+        part: tool(
+          "edit",
+          { status: "error", input: {}, error: { type: "t", message: "x" }, metadata: { files: [{ file: "x.ts" }] } },
+          5,
+          "p5",
+        ),
+      },
+      edit([{ file: "ok.ts", patch: "", additions: 1, deletions: 0, status: "added" }], 6, "p6"),
+    ]
+    expect(diffFromTools(entries)).toEqual([{ file: "ok.ts", patch: "", additions: 1, deletions: 0, status: "added" }])
+  })
+  test("bad file items are ignored; defaults fill missing fields", () => {
+    const out = diffFromTools([edit([null, "x", 42, { file: 7 }, { patch: "no file" }, { file: "" }, { file: "b.ts" }], 1)])
+    expect(out).toEqual([{ file: "b.ts", patch: "", additions: 0, deletions: 0, status: "modified" }])
+  })
+  test("walks oldest first: first-seen order even when entries arrive newest-first, input untouched", () => {
+    const entries = [
+      edit([{ file: "c.ts", patch: "pc", additions: 1, deletions: 0, status: "modified" }], 3, "p3"),
+      edit([{ file: "a.ts", patch: "pa", additions: 1, deletions: 0, status: "added" }], 1, "p1"),
+      edit([{ file: "b.ts", patch: "pb", additions: 1, deletions: 0, status: "modified" }], 2, "p2"),
+    ]
+    expect(diffFromTools(entries).map((file) => file.file)).toEqual(["a.ts", "b.ts", "c.ts"])
+    expect(entries.map((entry) => entry.part.time.created)).toEqual([3, 1, 2])
+  })
+  test("status merge: first 'added' sticks unless a later part deletes the file", () => {
+    const kept = diffFromTools([
+      edit([{ file: "n.ts", patch: "p1", additions: 5, deletions: 0, status: "added" }], 1, "p1"),
+      edit([{ file: "n.ts", patch: "p2", additions: 1, deletions: 1, status: "modified" }], 2, "p2"),
+    ])
+    expect(kept[0]?.status).toBe("added")
+    const deleted = diffFromTools([
+      edit([{ file: "n.ts", patch: "p1", additions: 5, deletions: 0, status: "added" }], 1, "p1"),
+      edit([{ file: "n.ts", patch: "", additions: 0, deletions: 5, status: "deleted" }], 2, "p2"),
+    ])
+    expect(deleted[0]?.status).toBe("deleted")
+    expect(deleted[0]?.patch).toBe("p1")
   })
 })
