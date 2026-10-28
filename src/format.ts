@@ -86,6 +86,66 @@ export function maskSecrets(text: string): string {
 
 const DETAIL_KEYS = ["command", "description", "filePath", "path", "pattern", "query", "url"] as const
 
+/** Shorten an absolute path for display: drop a `cwd` prefix to "./", the home
+ *  directory to "~", /private/var/folders/… (and /var/folders/…) to "$TMP".
+ *  When still longer than `max` (default 60), keep the first segment, "…/" and
+ *  the last two segments; if that still overflows, "…/" + the last segment
+ *  truncated. Non-absolute or short paths come back unchanged. Never longer
+ *  than max. */
+export function shortPath(path: string, opts: { cwd?: string; home?: string; max?: number } = {}): string {
+  if (!path.startsWith("/")) return path
+  // strip exactly one trailing "/"
+  let result = path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path
+  const { cwd, home } = opts
+  if (cwd && result.startsWith(`${cwd}/`)) result = `./${result.slice(cwd.length + 1)}`
+  else if (home && (result === home || result.startsWith(`${home}/`))) result = `~${result.slice(home.length)}`
+  result = result.replace(/^\/(?:private\/)?var\/folders\/[^/]+\/[^/]+\/T\//, "$TMP/")
+  const max = opts.max ?? 60
+  if (result.length <= max) return result
+  const segments = result.split("/")
+  const elided = `${segments[0]}/…/${segments.slice(-2).join("/")}`
+  if (elided.length <= max) return elided
+  const last = segments[segments.length - 1] ?? ""
+  const tail = `…/${truncate(last, Math.max(1, max - 2))}`
+  return tail.length <= max ? tail : tail.slice(0, max)
+}
+
+const CMD_ENV_ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/
+const CMD_PREFIX_WORDS = new Set(["set", "exec", "time", "nohup", "sudo"])
+const CMD_SPLIT = /\s*(?:&&|\|\||\||;)\s*/
+
+/** Command head of a shell invocation: first real token after leading env
+ *  assignments, `set …`, `exec`, `time` and `cd x &&` chains; basename only,
+ *  max 12 chars; "" for empty input. */
+export function cmdVerb(command: string): string {
+  const segments = command.trim().split(CMD_SPLIT).filter((segment) => segment.length > 0)
+  for (let s = 0; s < segments.length; s++) {
+    const tokens = segments[s]!.split(/\s+/).filter((token) => token.length > 0)
+    let i = 0
+    while (i < tokens.length) {
+      const token = tokens[i]!
+      if (CMD_ENV_ASSIGN.test(token)) {
+        i++
+        continue
+      }
+      if (CMD_PREFIX_WORDS.has(token)) {
+        i++
+        // `set -e` / `set -x` style flag directly after `set`
+        if (token === "set" && /^-[A-Za-z]/.test(tokens[i] ?? "")) i++
+        continue
+      }
+      break
+    }
+    const first = tokens[i]
+    if (first === undefined) continue
+    // `cd x &&` chain: the real command starts in the next segment
+    if (first === "cd" && s + 1 < segments.length) continue
+    const base = first.includes("/") ? (first.split("/").pop() ?? first) : first
+    return base.length > 12 ? base.slice(0, 12) : base
+  }
+  return ""
+}
+
 /** One-line "tool arg" summary of a tool call, secret-masked and truncated. */
 export function toolSummary(part: SessionMessageAssistantTool, max = 30): string {
   const input: Record<string, unknown> = part.state.status === "streaming" ? {} : (part.state.input ?? {})
