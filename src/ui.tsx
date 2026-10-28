@@ -41,26 +41,33 @@ export function Section(props: {
   w: number
   accent?: boolean
   titleColor?: RGBA
+  /** Blank lines after the section (default 2 for airy pages; 1 in tight slots). */
+  gap?: number
   children: JSX.Element
 }) {
   const context = usePlugin()
   const theme = () => context.theme
   const rightText = createMemo(() => (props.right ? ` ${props.right}` : ""))
   const title = createMemo(() => truncate(props.title, Math.max(1, props.w - rightText().length - 5)))
-  const rule = createMemo(() => Math.max(1, props.w - 3 - title().length - 1 - rightText().length))
+  // right label sits flush against the last column so every rule ends at the
+  // same x no matter how long the label is
+  // <text> ignores flexShrink, so the rule must be sized exactly to the
+  // space left after title + right label — that's what keeps every rule
+  // ending at the same column and the label fully visible.
+  const rule = createMemo(() => Math.max(1, props.w - 5 - title().length - rightText().length))
   const color = createMemo(() => props.titleColor ?? (props.accent ? theme().hue.accent[200] : theme().text.base))
   return (
-    <box flexDirection="column" width={props.w} marginBottom={1}>
+    <box flexDirection="column" width={props.w} marginBottom={props.gap ?? 2}>
       <box flexDirection="row" width={props.w}>
-        <text wrapMode="none" fg={theme().text.faint}>
+        <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>
           ──{" "}
         </text>
-        <text wrapMode="none" fg={color()}>
+        <text wrapMode="none" flexShrink={0} fg={color()}>
           <b>{title()}</b>
         </text>
-        <text wrapMode="none" fg={theme().text.faint}>{` ${"─".repeat(rule())}`}</text>
+        <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>{` ${"─".repeat(rule())}`}</text>
         <Show when={props.right}>
-          <text wrapMode="none" fg={theme().text.faint}>
+          <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>
             {rightText()}
           </text>
         </Show>

@@ -29,7 +29,10 @@ export function ChartsPanel(props: PanelProps) {
     return props.deck.modelLimit(model ? { id: model.id, providerID: model.providerID } : undefined)
   })
   const labelW = 7
-  const chartW = createMemo(() => Math.max(8, props.w - 2 - labelW - 8))
+  // the numeric tail is right-aligned in a fixed slot at the end of the row,
+  // so the sparkline stretches across everything left of it
+  const tailW = 7
+  const chartW = createMemo(() => Math.max(8, props.w - 2 - labelW - 1 - tailW - 1))
   const last = createMemo(() => turns().at(-1))
   const ctxPct = createMemo(() => {
     const max = limit()
@@ -39,23 +42,29 @@ export function ChartsPanel(props: PanelProps) {
   return (
     <Show when={turns().length > 0}>
       <Section title="charts" right={`${turns().length} turns`} w={props.w}>
-        <box flexDirection="row" gap={1}>
-          <text wrapMode="none" fg={theme().text.muted} width={labelW} flexShrink={0}>in</text>
-          <text wrapMode="none" fg={theme().hue.accent[200]}>{sparkline(turns().map((turn) => turn.input), chartW())}</text>
-          <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>{formatTokens(last()?.input ?? 0)}</text>
+        <box flexDirection="row" gap={1} width="100%" justifyContent="space-between">
+          <box flexDirection="row" gap={1} flexShrink={0}>
+            <text wrapMode="none" fg={theme().text.muted} width={labelW} flexShrink={0}>in</text>
+            <text wrapMode="none" fg={theme().hue.accent[200]}>{sparkline(turns().map((turn) => turn.input), chartW())}</text>
+          </box>
+          <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>{formatTokens(last()?.input ?? 0).padStart(tailW)}</text>
         </box>
-        <box flexDirection="row" gap={1}>
-          <text wrapMode="none" fg={theme().text.muted} width={labelW} flexShrink={0}>out</text>
-          <text wrapMode="none" fg={theme().text.feedback.success.base}>{sparkline(turns().map((turn) => turn.output), chartW())}</text>
-          <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>{formatTokens(last()?.output ?? 0)}</text>
+        <box flexDirection="row" gap={1} width="100%" justifyContent="space-between">
+          <box flexDirection="row" gap={1} flexShrink={0}>
+            <text wrapMode="none" fg={theme().text.muted} width={labelW} flexShrink={0}>out</text>
+            <text wrapMode="none" fg={theme().text.feedback.success.base}>{sparkline(turns().map((turn) => turn.output), chartW())}</text>
+          </box>
+          <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>{formatTokens(last()?.output ?? 0).padStart(tailW)}</text>
         </box>
         <Show when={ctxPct().length > 0}>
-          <box flexDirection="row" gap={1}>
-            <text wrapMode="none" fg={theme().text.muted} width={labelW} flexShrink={0}>ctx %</text>
-            <text wrapMode="none" fg={(ctxPct().at(-1) ?? 0) >= 70 ? theme().text.feedback.warning.base : theme().hue.accent[200]}>
-              {sparkline(ctxPct(), chartW(), 100)}
-            </text>
-            <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>{Math.round(ctxPct().at(-1) ?? 0)}%</text>
+          <box flexDirection="row" gap={1} width="100%" justifyContent="space-between">
+            <box flexDirection="row" gap={1} flexShrink={0}>
+              <text wrapMode="none" fg={theme().text.muted} width={labelW} flexShrink={0}>ctx %</text>
+              <text wrapMode="none" fg={(ctxPct().at(-1) ?? 0) >= 70 ? theme().text.feedback.warning.base : theme().hue.accent[200]}>
+                {sparkline(ctxPct(), chartW(), 100)}
+              </text>
+            </box>
+            <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>{`${Math.round(ctxPct().at(-1) ?? 0)}%`.padStart(tailW)}</text>
           </box>
         </Show>
       </Section>

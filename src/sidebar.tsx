@@ -109,7 +109,7 @@ function McpSection(props: { deck: Deck; sessionID: string; w: Width }) {
 
   return (
     <Show when={rows().length > 0}>
-      <Section title="tool calls" right={`${total()} ${total() === 1 ? "call" : "calls"}`} w={props.w()}>
+      <Section title="tool calls" right={`${total()} ${total() === 1 ? "call" : "calls"}`} w={props.w()} gap={1}>
         <For each={rows().slice(0, MCP_LIMIT)}>
           {(row) => {
             const label = createMemo(() => truncate(row.key, Math.max(6, props.w() - 2 - `×${row.count}`.length - 1)))
@@ -352,6 +352,7 @@ function AgentsArea(props: { deck: Deck; sessionID: string; w: Width }) {
         title="agents"
         right={partition().active.length > 0 ? `${partition().active.length} active` : undefined}
         w={props.w()}
+        gap={1}
       >
         <For each={partition().active}>
           {(child) => <ActiveRow deck={props.deck} session={child} w={inner} pending={pendingByAgent().get(child.id)} />}
@@ -415,7 +416,7 @@ function ActivitySection(props: { deck: Deck; sessionID: string; w: Width; activ
 
   return (
     <Show when={rows().length > 0}>
-      <Section title="activity" w={props.w()}>
+      <Section title="activity" w={props.w()} gap={1}>
         <For each={rows()}>
           {(row) => {
             const part = row.item.part
@@ -484,6 +485,7 @@ function PermissionsSection(props: { deck: Deck; sessionID: string; w: Width }) 
         title="permissions"
         right={pending().length > 0 ? `${pending().length} pending` : undefined}
         w={props.w()}
+        gap={1}
       >
         <For each={shown()}>
           {(record) => {
