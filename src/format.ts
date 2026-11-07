@@ -38,6 +38,44 @@ export function truncate(text: string, max: number): string {
   return `${text.slice(0, Math.max(0, max - 1))}…`
 }
 
+/** Fit `text` into exactly `width` cells: truncate, then pad (left or right). */
+export function fit(text: string, width: number, alignRight = false): string {
+  const w = Math.max(0, Math.floor(width))
+  const cut = truncate(text, w)
+  const pad = " ".repeat(Math.max(0, w - cut.length))
+  return alignRight ? pad + cut : cut + pad
+}
+
+/**
+ * Fit one-line key hints into `w` columns without losing the actionable tail.
+ * The rendered width of a hint list is `Σ(key + " " + label) + 3·(n − 1)` for
+ * the " · " separators; a dropped prefix costs one extra " · …" (+4).
+ *
+ * All hints fit → returned whole with `dropped: false`. Otherwise the last
+ * `keep` hints (the `q back`-style tail) are always kept and hints are added
+ * from the front, in order, while the list plus the ellipsis still fits. If
+ * even the kept tail does not fit, only the tail is returned (`dropped: true`)
+ * and the caller clips the overflow.
+ */
+export function fitHints(
+  items: readonly [string, string][],
+  w: number,
+  keep = 2,
+): { items: [string, string][]; dropped: boolean } {
+  const width = (list: readonly [string, string][]) =>
+    list.reduce((sum, [key, label]) => sum + key.length + 1 + label.length, 0) + 3 * Math.max(0, list.length - 1)
+  if (width(items) <= w) return { items: [...items], dropped: false }
+  const tail = items.slice(Math.max(0, items.length - Math.max(0, keep)))
+  if (tail.length === 0) return { items: [], dropped: false }
+  const front: [string, string][] = []
+  if (width(tail) + 4 > w) return { items: tail, dropped: true }
+  for (const item of items.slice(0, items.length - tail.length)) {
+    if (width([...front, item, ...tail]) + 4 > w) break
+    front.push(item)
+  }
+  return { items: [...front, ...tail], dropped: true }
+}
+
 /** Short display name for a model id: drops provider prefix and vendor noise. */
 export function shortModel(id: string | undefined, max = 14): string {
   if (!id) return "?"
@@ -159,8 +197,9 @@ const SHELL_VERBS = new Set([
 export function toolSummary(
   part: SessionMessageAssistantTool,
   max = 30,
-  opts: { cwd?: string; home?: string } = {},
+  opts: { cwd?: string; home?: string; pathMax?: number } = {},
 ): string {
+  const pathMax = opts.pathMax ?? 40
   const input: Record<string, unknown> = part.state.status === "streaming" ? {} : (part.state.input ?? {})
   let detail = ""
   for (const key of DETAIL_KEYS) {
@@ -180,18 +219,18 @@ export function toolSummary(
     const verb = cmdVerb(detail)
     const path = detail.split(/\s+/).find((token) => token.startsWith("/"))
     if (SHELL_VERBS.has(verb)) {
-      const tail = path ? ` ${shortPath(path, { cwd: opts.cwd, home: opts.home, max: 40 })}` : ""
+      const tail = path ? ` ${shortPath(path, { cwd: opts.cwd, home: opts.home, max: pathMax })}` : ""
       detail = `${verb}${tail}`
     } else if (path) {
       // script-ish command: show the path it works on instead of the preamble
-      detail = shortPath(path, { cwd: opts.cwd, home: opts.home, max: 40 })
+      detail = shortPath(path, { cwd: opts.cwd, home: opts.home, max: pathMax })
     }
   } else if (detail.startsWith("/")) {
-    detail = shortPath(detail, { cwd: opts.cwd, home: opts.home, max: 44 })
+    detail = shortPath(detail, { cwd: opts.cwd, home: opts.home, max: pathMax })
   } else {
     // a path somewhere inside the args (grep/path tools): shorten the first one
     const token = detail.split(/\s+/).find((word) => word.startsWith("/"))
-    if (token) detail = detail.replace(token, shortPath(token, { cwd: opts.cwd, home: opts.home, max: 44 }))
+    if (token) detail = detail.replace(token, shortPath(token, { cwd: opts.cwd, home: opts.home, max: pathMax }))
   }
   const text = detail ? `${part.name} ${maskSecrets(detail)}` : part.name
   return truncate(text.replace(/\s+/g, " ").trim(), max)

@@ -105,3 +105,52 @@ export function mixColor(a: RGBA, b: RGBA, t: number): RGBA {
   const k = Math.max(0, Math.min(1, t))
   return RGBA.fromValues(a.r + (b.r - a.r) * k, a.g + (b.g - a.g) * k, a.b + (b.b - a.b) * k, 1)
 }
+
+/**
+ * Smooth 0..1 pulse from the shared tick — one full sine per `period` ticks
+ * (default 16 ticks ≈ 1.9s at TICK_MS), clamped so callers can scale opacity
+ * or brightness straight from it. Pure: the caller owns the clock.
+ */
+export function pulseLevel(tick: number, period = 16): number {
+  const p = period > 0 ? period : 1
+  return Math.max(0, Math.min(1, (1 + Math.sin((tick / p) * 2 * Math.PI)) / 2))
+}
+
+/**
+ * Tree-branch rail: one entry per row, each exactly `w` cells wide (min 2) —
+ * dim `│` ancestors above the child, `├──`/`└──` at the join row, and blank
+ * (last) or `│` (still has siblings below) rows after it. While `active`, a
+ * lit packet (head `●`, trail `•`) climbs one row per tick, wrapping at the
+ * join row — the vertical sibling of `flowRuns`. The join corner glyph is
+ * preserved: when the head lands on the join row it sits in cell 1
+ * (`├●─`, `└●─`) instead of replacing the corner.
+ */
+export function treeRail(opts: {
+  rows: number
+  join: number
+  last: boolean
+  active: boolean
+  phase: number
+  w: number
+}): { text: string; lit: boolean }[] {
+  const rows = Math.max(0, Math.floor(opts.rows))
+  const w = Math.max(2, Math.floor(opts.w))
+  const join = Math.max(0, Math.floor(opts.join))
+  const head = opts.active ? ((opts.phase % (join + 1)) + (join + 1)) % (join + 1) : -1
+  const out: { text: string; lit: boolean }[] = []
+  for (let row = 0; row < rows; row++) {
+    const glyph = row < join ? "│" : row === join ? (opts.last ? "└" : "├") : opts.last ? " " : "│"
+    let text = glyph + (row === join ? "─".repeat(w - 1) : " ".repeat(w - 1))
+    const lit = opts.active && (row === head || row === head - 1)
+    if (lit) {
+      if (row === join && row === head) {
+        // Keep the join corner (├/└) in cell 0; the packet enters cell 1.
+        text = glyph + "●" + "─".repeat(Math.max(0, w - 2))
+      } else {
+        text = (row === head ? "●" : "•") + text.slice(1)
+      }
+    }
+    out.push({ text, lit })
+  }
+  return out
+}

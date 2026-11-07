@@ -22,7 +22,7 @@ import { buildTree, flattenTree, loadCommitFiles, loadWorking, type GitFileDiff,
 import { diffFromTools, splitPatch, type SplitCell, type SplitRow } from "./metrics.js"
 import { collectToolParts } from "./shared.js"
 import type { Deck } from "./state.js"
-import { KeyHints, Marker, Rule, ScrollList, glyph } from "./ui.js"
+import { KeyHints, Marker, Rule, ScrollList, TabBar, glyph } from "./ui.js"
 
 /** One file entry regardless of source (session edits or git working tree). */
 type DiffFile = {
@@ -597,16 +597,20 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
             <text wrapMode="none" fg={theme().hue.accent[200]}>
               <b>{`${glyph.main} opendeck · files changed`}</b>
             </text>
-            <box flexDirection="row" onMouseDown={() => deck.setDiffSource("edits")}>
-              <text wrapMode="none" fg={source() === "edits" ? theme().hue.accent[200] : theme().text.faint}>
-                {source() === "edits" ? "[edits]" : "edits"}
-              </text>
-            </box>
-            <box flexDirection="row" onMouseDown={() => deck.setDiffSource("git")}>
-              <text wrapMode="none" fg={source() === "git" ? theme().hue.accent[200] : theme().text.faint}>
-                {source() === "git" ? "[git]" : "git"}
-              </text>
-            </box>
+            <TabBar
+              items={[
+                { key: "edits", label: "edits" },
+                { key: "git", label: "git" },
+                { key: "log", label: "log" },
+              ]}
+              active={source() === "edits" ? "edits" : "git"}
+              w={Math.max(21, Math.min(25, W() - 30))}
+              onSelect={(key) => {
+                // 3/log is the git log page, not a diff source (same as key 3).
+                if (key === "log") deck.openGit()
+                else deck.setDiffSource(key as "edits" | "git")
+              }}
+            />
             <Show when={source() === "commit"}>
               <text wrapMode="none" fg={theme().hue.accent[200]}>{`[commit ${(deck.diffCommit() ?? "").slice(0, 8)}]`}</text>
             </Show>

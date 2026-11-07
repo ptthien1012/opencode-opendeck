@@ -9,9 +9,9 @@ import type { SessionStatsInfo } from "@opencode/client"
 import { usePlugin } from "@opencode/plugin/tui"
 import type { BoxRenderable, RGBA } from "@opentui/core"
 import { createMemo, createResource, createSignal, For, onMount, Show } from "solid-js"
-import { maskSecrets, truncate } from "./format.js"
+import { fit, maskSecrets, truncate } from "./format.js"
 import type { Deck } from "./state.js"
-import { Gauge, KeyHints, Rule, ScrollList, Section, glyph } from "./ui.js"
+import { Gauge, KeyHints, Rule, ScrollList, Section, TabBar, glyph } from "./ui.js"
 import {
   RANGE_DAYS,
   brailleChart,
@@ -28,14 +28,6 @@ import {
 const HEAT = [" ", "·", "▪", "■", "■"] as const
 const DAYS = ["Mon", "   ", "Wed", "   ", "Fri", "   ", "Sun"] as const
 
-/** Fit `text` into exactly `width` cells. */
-function fit(text: string, width: number, alignRight = false): string {
-  const w = Math.max(0, Math.floor(width))
-  const cut = truncate(text, w)
-  const pad = " ".repeat(Math.max(0, w - cut.length))
-  return alignRight ? pad + cut : cut + pad
-}
-
 export function UsageView(props: { deck: Deck; sessionID?: string }) {
   const context = usePlugin()
   const theme = () => context.theme
@@ -44,7 +36,7 @@ export function UsageView(props: { deck: Deck; sessionID?: string }) {
   let rootRef: BoxRenderable | undefined
   const [measured, setMeasured] = createSignal(0)
   onMount(() => setMeasured(rootRef?.width ?? context.renderer.terminalWidth ?? 120))
-  const W = createMemo(() => Math.max(60, (measured() || context.renderer.terminalWidth || 120) - 2))
+  const W = createMemo(() => Math.max(48, (measured() || context.renderer.terminalWidth || 120) - 2))
   const H = createMemo(() => context.renderer.terminalHeight ?? 40)
 
   const projectID = createMemo(() => {
@@ -135,13 +127,13 @@ export function UsageView(props: { deck: Deck; sessionID?: string }) {
   // Name column and bar shrink on narrow terminals; numbers keep 8 cols.
   const NUM_W = 8
   const nameW = createMemo(() => Math.min(30, Math.max(12, W() - 3 - NUM_W * 5 - 4 - 4)))
-  function renderModel(row: ModelRow, index: number) {
+  function renderModel(row: ModelRow) {
     const barW = Math.max(0, Math.min(30, W() - 3 - 2 - nameW() - NUM_W * 5 - 2))
     const filled = maxModel() > 0 ? Math.max(row.total > 0 ? 1 : 0, Math.round((row.total / maxModel()) * barW)) : 0
     const name = `${row.id}${row.variant ? ` #${row.variant}` : ""} · ${row.provider}`
     return (
       <box flexDirection="row" width={W() - 3}>
-        <text wrapMode="none" flexShrink={0} fg={index === 0 ? theme().hue.accent[200] : theme().text.base}>{`  ${fit(name, nameW())}`}</text>
+        <text wrapMode="none" flexShrink={0} fg={theme().text.base}>{`  ${fit(name, nameW())}`}</text>
         <text wrapMode="none" flexShrink={0} fg={theme().text.muted}>{fit(compact(row.steps), NUM_W, true)}</text>
         <text wrapMode="none" flexShrink={0} fg={theme().text.base}>{fit(compact(row.input), NUM_W, true)}</text>
         <text wrapMode="none" flexShrink={0} fg={theme().hue.accent[200]}>{fit(compact(row.cacheRead), NUM_W, true)}</text>
@@ -170,6 +162,25 @@ export function UsageView(props: { deck: Deck; sessionID?: string }) {
     const at = stats()?.at
     return at ? new Date(at).toTimeString().slice(0, 5) : ""
   })
+
+  // --- header budget -------------------------------------------------------------
+  // Title + tab strip + the scope/updated tail must all fit the measured width.
+  // The tab strip takes its shortened form first, then `updated` is dropped,
+  // then the scope label is cut to whatever cells remain.
+  const TITLE_W = 18 // `${glyph.main} opendeck · usage`
+  const tabW = createMemo(() => Math.max(19, Math.min(22, W() - TITLE_W - 12)))
+  const headerBudget = createMemo(() => Math.max(0, W() - TITLE_W - tabW() - 4))
+  const scopeFull = createMemo(() => (deck.usageScope() === "all" ? "· [all] project" : "· all [project]"))
+  const updatedFull = createMemo(() => (updated() ? `updated ${updated()}` : ""))
+  // The loading hint counts as taken space so it never pushes the strip over.
+  const loadingW = createMemo(() => (stats.loading ? 8 : 0))
+  const showUpdated = createMemo(
+    () => updatedFull() !== "" && headerBudget() >= scopeFull().length + 1 + updatedFull().length + loadingW(),
+  )
+  const scopeShown = createMemo(() =>
+    truncate(scopeFull(), Math.max(0, headerBudget() - (showUpdated() ? updatedFull().length + 1 : 0) - loadingW())),
+  )
+  const updatedShown = createMemo(() => (showUpdated() ? updatedFull() : ""))
 
   // 10 label + 9 value + 1 + gauge + 5 pct; the gauge absorbs narrow widths.
   const gaugeCells = createMemo(() => Math.max(0, Math.min(10, inner() - 25)))
@@ -202,25 +213,22 @@ export function UsageView(props: { deck: Deck; sessionID?: string }) {
           <text wrapMode="none" flexShrink={0} fg={theme().hue.accent[200]}>
             <b>{`${glyph.main} opendeck · usage`}</b>
           </text>
-          <For each={ranges}>
-            {(range, index) => (
-              <box onMouseDown={() => deck.setUsageRange(range)}>
-                <text wrapMode="none" flexShrink={0} fg={deck.usageRange() === range ? theme().hue.accent[200] : theme().text.faint}>
-                  {deck.usageRange() === range ? `[${index() + 1} ${range}]` : ` ${index() + 1} ${range} `}
-                </text>
-              </box>
-            )}
-          </For>
-          <box onMouseDown={() => deck.toggleUsageScope()}>
-            <text wrapMode="none" flexShrink={0} fg={theme().text.muted}>
-              {deck.usageScope() === "all" ? "· [all] project" : "· all [project]"}
-            </text>
-          </box>
+          <TabBar
+            items={ranges.map((range) => ({ key: range, label: range }))}
+            active={deck.usageRange()}
+            w={tabW()}
+            onSelect={(key) => deck.setUsageRange(key as UsageRange)}
+          />
+          <Show when={scopeShown()}>
+            <box onMouseDown={() => deck.toggleUsageScope()}>
+              <text wrapMode="none" flexShrink={0} fg={theme().text.muted}>{scopeShown()}</text>
+            </box>
+          </Show>
           <Show when={stats.loading}>
             <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>loading…</text>
           </Show>
-          <Show when={updated()}>
-            <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>{`updated ${updated()}`}</text>
+          <Show when={updatedShown()}>
+            <text wrapMode="none" flexShrink={0} fg={theme().text.faint}>{updatedShown()}</text>
           </Show>
         </box>
         <Rule w={W()} />
@@ -299,7 +307,7 @@ export function UsageView(props: { deck: Deck; sessionID?: string }) {
                 width={W() - 1}
                 scrollbar
                 onScroll={(next) => deck.setUsageTop(next)}
-                render={(row, index) => renderModel(row, index)}
+                render={(row) => renderModel(row)}
               />
               <Show when={tools().length > 0}>
                 <box flexDirection="column" marginTop={1}>

@@ -11,10 +11,10 @@
 import type { SessionInfo } from "@opencode/client"
 import { usePlugin } from "@opencode/plugin/tui"
 import type { BoxRenderable } from "@opentui/core"
-import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js"
-import { mixColor, spinner } from "./anim.js"
+import { createEffect, createMemo, createSignal, For, Index, onMount, Show } from "solid-js"
+import { mixColor, pulseLevel, spinner, treeRail } from "./anim.js"
 import { formatElapsed, formatTokens, maskSecrets, shortModel, toolSummary, truncate } from "./format.js"
-import { cacheShare, formatDuration, sparkline, toolState, turnSeries } from "./metrics.js"
+import { cacheShare, formatDuration, formatRate, sparkline, toolState, turnSeries } from "./metrics.js"
 import type { Deck } from "./state.js"
 import {
   agentDesc,
@@ -30,7 +30,7 @@ import {
   useContextStats,
   usePermRecords,
 } from "./shared.js"
-import { Gauge, Marker, Section, glyph } from "./ui.js"
+import { AgentCard, Gauge, Marker, Section, agentColor, cardInner } from "./ui.js"
 
 const DONE_LIMIT = 12
 const ACTIVITY_LIMIT = 6
@@ -141,17 +141,29 @@ function ActiveRow(props: {
   deck: Deck
   session: SessionInfo
   w: Width
+  last: boolean
   pending: { action: string; resources: string[] } | undefined
 }) {
   const context = usePlugin()
   const theme = () => context.theme
   const agent = useAgentState(props.deck, props.session)
 
+  const running = createMemo(() => context.data.session.status(props.session.id) === "running")
+  const cw = () => cardInner(props.w() - 2)
   const clock = createMemo(() => (agent.elapsedMs() !== undefined ? formatElapsed(agent.elapsedMs()!) : "-"))
-  // Line 1 leads with a status marker (full-view style): ▌ name · model.
-  const title = createMemo(() =>
-    truncate(` ${agentName(props.session)} · ${shortModel(agent.model()?.id, 10)}`, Math.max(8, props.w() - clock().length - 2)),
+  // 2-col tree rail: ancestor bars, the join row, then the sibling tail.
+  const rail = createMemo(() =>
+    treeRail({ rows: 5, join: 2, last: props.last, active: running(), phase: props.deck.tick(), w: 2 }),
   )
+  // Line 1 leads with a status marker (full-view style): ▌ name · model.
+  // The shared indicator (launch glyph → spinner → status glyph) sits before the name.
+  const title = createMemo(() => {
+    const warn = props.pending ? "⚠ " : ""
+    return truncate(
+      ` ${warn}${agent.indicator()} ${agentName(props.session)} · ${shortModel(agent.model()?.id, 10)}`,
+      Math.max(1, cw() - clock().length - 2 - warn.length),
+    )
+  })
   const ctxLabel = createMemo(() => {
     const pct = agent.ctxRatio()
     if (pct !== undefined) return `${Math.round(pct * 100)}%`
@@ -176,32 +188,108 @@ function ActiveRow(props: {
       : agent.lastTool()
         ? toolSummary(agent.lastTool()!, 60, { cwd: cwd() })
         : agent.status()
-    const rightW = ctxLabel().length + tokenLabel().length + 1
-    return truncate(base, Math.max(6, props.w() - rightW - 3))
+    return truncate(base, Math.max(6, cw() - 2))
   })
 
   return (
-    <box onMouseDown={() => openSessionSafe(context, props.session.id)}>
-      <box flexDirection="row" justifyContent="space-between" width="100%">
-        <box flexDirection="row">
-          <Marker color={agent.statusColor()} />
-          <text wrapMode="none" fg={theme().text.base}>
-            {title()}
+    <box flexDirection="row" width={props.w()} onMouseDown={() => openSessionSafe(context, props.session.id)}>
+      <box flexDirection="column" width={2} flexShrink={0}>
+        <Index each={rail()}>
+          {(row) => (
+            <text wrapMode="none" fg={row().lit ? agentColor(theme(), props.session.id) : theme().text.faint}>
+              {row().text}
+            </text>
+          )}
+        </Index>
+      </box>
+      <AgentCard
+        w={props.w() - 2}
+        color={
+          props.pending
+            ? theme().text.feedback.warning.base
+            : agent.status() === "error"
+              ? theme().text.feedback.error.base
+              : running()
+                ? mixColor(agent.statusColor(), theme().hue.accent[200], pulseLevel(props.deck.tick()))
+                : agent.statusColor()
+        }
+      >
+        <box flexDirection="row" justifyContent="space-between" width="100%">
+          <box flexDirection="row">
+            <Marker color={agent.statusColor()} />
+            <text wrapMode="none" fg={theme().text.base}>
+              <b>{title()}</b>
+            </text>
+          </box>
+          <text wrapMode="none" fg={theme().text.muted} flexShrink={0}>
+            {clock()}
           </text>
         </box>
-        <text wrapMode="none" fg={theme().text.muted} flexShrink={0}>
-          {clock()}
-        </text>
-      </box>
-      <box flexDirection="row" justifyContent="space-between" width="100%">
         <text wrapMode="none" fg={props.pending ? theme().text.feedback.warning.base : theme().text.muted}>
-          {"  "}
-          {detail()}
+          {`  ${detail()}`}
         </text>
-        <text wrapMode="none" fg={theme().text.faint} flexShrink={0}>
-          {ctxLabel()} {tokenLabel()}
+        <text wrapMode="none" fg={theme().text.faint}>
+          {truncate(`  ctx ${ctxLabel()} · ${tokenLabel()} · ${formatRate(agent.rate().last ?? agent.rate().avg)}t/s`, cw())}
         </text>
-      </box>
+      </AgentCard>
+    </box>
+  )
+}
+
+/**
+ * One active agent card plus its running grandchildren nested underneath
+ * (depth 2 max, no deeper recursion). Each grandchild row is prefixed by a
+ * 2-col continuation rail so the tree reads as one branch.
+ */
+function AgentBranch(props: {
+  deck: Deck
+  session: SessionInfo
+  w: Width
+  pendingByAgent: () => Map<string, { action: string; resources: string[] }>
+  last: boolean
+}) {
+  const context = usePlugin()
+  const theme = () => context.theme
+
+  const grandchildren = createMemo(() =>
+    props.deck
+      .children(props.session.id)
+      .filter(
+        (child) => context.data.session.status(child.id) === "running" || props.pendingByAgent().has(child.id),
+      ),
+  )
+
+  return (
+    <box flexDirection="column">
+      <ActiveRow
+        deck={props.deck}
+        session={props.session}
+        w={props.w}
+        last={props.last}
+        pending={props.pendingByAgent().get(props.session.id)}
+      />
+      <For each={grandchildren()}>
+        {(child, index) => (
+          <box flexDirection="row" width={props.w()}>
+            <box flexDirection="column" width={2} flexShrink={0}>
+              <For each={[0, 1, 2, 3, 4]}>
+                {() => (
+                  <text wrapMode="none" fg={theme().text.faint}>
+                    {props.last ? "  " : "│ "}
+                  </text>
+                )}
+              </For>
+            </box>
+            <ActiveRow
+              deck={props.deck}
+              session={child}
+              w={() => props.w() - 2}
+              last={index() === grandchildren().length - 1}
+              pending={props.pendingByAgent().get(child.id)}
+            />
+          </box>
+        )}
+      </For>
     </box>
   )
 }
@@ -354,9 +442,19 @@ function AgentsArea(props: { deck: Deck; sessionID: string; w: Width }) {
         w={props.w()}
         gap={1}
       >
-        <For each={partition().active}>
-          {(child) => <ActiveRow deck={props.deck} session={child} w={inner} pending={pendingByAgent().get(child.id)} />}
-        </For>
+        <box flexDirection="column">
+          <For each={partition().active}>
+            {(child, index) => (
+              <AgentBranch
+                deck={props.deck}
+                session={child}
+                w={inner}
+                pendingByAgent={pendingByAgent}
+                last={index() === partition().active.length - 1}
+              />
+            )}
+          </For>
+        </box>
         <Show when={partition().done.length > 0}>
           <DoneBlock deck={props.deck} done={partition().done} ok={doneCounts().ok} failed={doneCounts().failed} w={inner} />
         </Show>
@@ -537,7 +635,7 @@ export function Sidebar(props: { deck: Deck; sessionID: string }) {
   const [measured, setMeasured] = createSignal(0)
   onMount(() => setMeasured(rootRef?.width ?? 0))
   const w = createMemo(() => Math.max(20, measured() || 30))
-  // Model for the ◆ opendeck header line once the slot is wide enough; below
+  // Model for the opendeck header line once the slot is wide enough; below
   // that it stays at the end of the in/out row (ContextLines).
   const { stats } = useContextStats(props.deck, () => props.sessionID)
   const model = createMemo(() => stats()?.modelID)
@@ -588,12 +686,9 @@ export function Sidebar(props: { deck: Deck; sessionID: string }) {
       }}
     >
       <box flexDirection="row" justifyContent="space-between" width="100%">
-        <box flexDirection="row" gap={1} onMouseDown={() => props.deck.toggleCollapsed()}>
-          <text wrapMode="none" fg={theme().text.faint}>
-            {props.deck.collapsed() ? "▶" : "▼"}
-          </text>
+        <box flexDirection="row" onMouseDown={() => props.deck.toggleCollapsed()}>
           <text wrapMode="none" fg={theme().hue.accent[200]}>
-            <b>{`${glyph.main} opendeck`}</b>
+            <b>{props.deck.collapsed() ? "▸ opendeck" : "▾ opendeck"}</b>
           </text>
         </box>
         <Show when={!props.deck.collapsed() && w() >= 34 && model()}>
@@ -620,15 +715,15 @@ export function Sidebar(props: { deck: Deck; sessionID: string }) {
             </text>
           </box>
         </Show>
-        <box flexDirection="row" gap={1} onMouseDown={() => props.deck.openFullview()}>
-          <text wrapMode="none" fg={theme().hue.accent[200]}>
-            ⤢ open
-          </text>
-          <text wrapMode="none" fg={theme().text.faint}>
-            {truncate("· /opendeck", Math.max(0, w() - 8))}
-          </text>
-        </box>
       </Show>
+      <box flexDirection="row" gap={1} onMouseDown={() => props.deck.openFullview()}>
+        <text wrapMode="none" fg={theme().hue.accent[200]}>
+          ⤢ open
+        </text>
+        <text wrapMode="none" fg={theme().text.faint}>
+          {truncate("· /opendeck", Math.max(0, w() - 8))}
+        </text>
+      </box>
     </box>
   )
 }

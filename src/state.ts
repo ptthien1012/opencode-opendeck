@@ -70,7 +70,6 @@ export function createDeck(context: Context) {
     const [tick, setTick] = createSignal(0)
     const [now, setNow] = createSignal(Date.now())
     const [runs, setRuns] = createSignal<Record<string, Run>>({})
-    const [expandedMap, setExpandedMap] = createSignal<Record<string, boolean>>({})
     const [perms, setPerms] = createSignal<PermRecord[]>([])
     // Full-screen view (plugin route "opendeck"): open state + the root
     // session it was opened from, so close lands back where the user was.
@@ -79,6 +78,11 @@ export function createDeck(context: Context) {
     // Active full-view dashboard tab. Signal for reactivity; mirrored into
     // the memory store so the last tab survives hot reloads (like lanes).
     const [fullTab, setFullTabRaw] = createSignal<FullTab>(ui.tab ?? "overview")
+    // Agents tab keyboard selection: the rows' session ids in display order
+    // (published by the view) and the selected id. The view renders the
+    // selection later; movement lives here so the keymap stays dumb.
+    const [agentIds, setAgentIdsRaw] = createSignal<string[]>([])
+    const [agentSel, setAgentSel] = createSignal<string | undefined>(undefined)
     // Diff page (plugin route "opendeck-diff"): open flag + raw selected file
     // index (the view clamps it to the loaded list). No animations there, so
     // the diff page never needs the ticker.
@@ -122,6 +126,8 @@ export function createDeck(context: Context) {
     // opened from, so close lands back there (full view/diff/git/usage).
     const [helpOpen, setHelpOpen] = createSignal(false)
     const [helpBack, setHelpBack] = createSignal<"full" | "diff" | "git" | "usage">("full")
+    // Help page scroll top (raw — the view owns the row count and clamps).
+    const [helpScroll, setHelpScrollRaw] = createSignal(0)
     // Flattened tree rows published by the diff view so diffKey can resolve
     // the row under the cursor without owning the tree.
     const [diffRows, setDiffRowsRaw] = createSignal<readonly DiffRowInfo[]>([])
@@ -899,11 +905,21 @@ export function createDeck(context: Context) {
       },
       /** Help page open flag (follows the route). */
       helpOpen,
+      /** First visible help row; raw, the view clamps the max. */
+      helpScroll,
+      setHelpScroll(value: number) {
+        setHelpScrollRaw(Math.max(0, Math.floor(value)))
+      },
+      /** Scroll the help page by delta rows (clamped at 0 here, at max in the view). */
+      scrollHelp(delta: number) {
+        setHelpScrollRaw((current) => Math.max(0, current + Math.trunc(delta)))
+      },
       /** Open the help page; close returns to `back` (default: full view). */
       openHelp(back: "full" | "diff" | "git" | "usage" = "full", sessionID?: string) {
         const id = sessionID ?? lastRoot() ?? rootSessionID()
         if (id) setLastRoot(id)
         setHelpBack(back)
+        setHelpScrollRaw(0)
         // helpOpen (and its keymap mode) follows the route effect, so only
         // one opendeck mode is ever pushed.
         try {
@@ -959,18 +975,46 @@ export function createDeck(context: Context) {
         const tween = ctxTween()
         return tween ? tweenValue(tween, now()) : undefined
       },
-      expanded(sessionID: string) {
-        return expandedMap()[sessionID] ?? false
-      },
-      toggleExpanded(sessionID: string) {
-        const next = !(expandedMap()[sessionID] ?? false)
-        setExpandedMap((current) => ({ ...current, [sessionID]: next }))
-      },
       /** Subagent (child) sessions of the given session, oldest first. */
       children(sessionID: string) {
         return (context.data.session.list() ?? [])
           .filter((session) => session.parentID === sessionID)
           .sort((a, b) => a.time.created - b.time.created)
+      },
+      /** Session ids of the Agents tab rows, in display order (view-published). */
+      agentIds,
+      /** Selected agent session id on the Agents tab; undefined until moved. */
+      agentSel,
+      /**
+       * Publish the Agents tab rows. Skips identical lists (same order) to
+       * avoid reactive churn, and clears the selection when its row is gone.
+       */
+      setAgentIds(ids: string[]) {
+        const current = agentIds()
+        if (current.length === ids.length && current.every((id, index) => id === ids[index])) return
+        setAgentIdsRaw(ids)
+        const selected = agentSel()
+        if (selected !== undefined && !ids.includes(selected)) setAgentSel(undefined)
+      },
+      /**
+       * Move the Agents tab selection by delta rows, wrapping at both ends.
+       * From no selection, moves to the first (delta 1) or last (delta -1) row.
+       */
+      moveAgentSel(delta: 1 | -1) {
+        const ids = agentIds()
+        if (ids.length === 0) return
+        const selected = agentSel()
+        const index = selected === undefined ? -1 : ids.indexOf(selected)
+        if (index === -1) {
+          setAgentSel(delta > 0 ? ids[0] : ids[ids.length - 1])
+          return
+        }
+        setAgentSel(ids[(index + delta + ids.length) % ids.length])
+      },
+      /** Open the selected agent session from the full view (no-op when unset). */
+      openAgentSel() {
+        const selected = agentSel()
+        if (selected) deck.diveInto(selected)
       },
       /** Total USD cost of the session family (current session + subagents). */
       totalCost(sessionID: string) {

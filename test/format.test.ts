@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { cmdVerb, shortPath } from "../src/format.ts"
+import { cmdVerb, fitHints, shortPath } from "../src/format.ts"
 
 const CWD = "/Volumes/MyDrive/git/work/zeus_mobile"
 const HOME = "/Users/thien"
@@ -61,5 +61,49 @@ describe("cmdVerb", () => {
 
   test("bare subcommand", () => {
     expect(cmdVerb("npm run build")).toBe("npm")
+  })
+})
+
+const HINTS: [string, string][] = [
+  ["a", "1"],
+  ["b", "2"],
+  ["c", "3"],
+  ["d", "4"],
+]
+
+describe("fitHints", () => {
+  test("all hints fit", () => {
+    const result = fitHints(HINTS, 21)
+    expect(result.dropped).toBe(false)
+    expect(result.items).toEqual(HINTS)
+  })
+
+  test("overflow keeps the last two hints", () => {
+    // tail alone is 3 + 3 + 3 = 9 wide, plus " · …" (4) = 13
+    const result = fitHints(HINTS, 13)
+    expect(result.dropped).toBe(true)
+    expect(result.items).toEqual([
+      ["c", "3"],
+      ["d", "4"],
+    ])
+  })
+
+  test("tiny width returns only the tail", () => {
+    const result = fitHints(HINTS, 5)
+    expect(result.dropped).toBe(true)
+    expect(result.items).toEqual([
+      ["c", "3"],
+      ["d", "4"],
+    ])
+  })
+
+  test("keep=1 leaves room for one front hint", () => {
+    // [a d] = 9 + 4 = 13 fits 15, [a b d] = 15 + 4 = 19 does not
+    const result = fitHints(HINTS, 15, 1)
+    expect(result.dropped).toBe(true)
+    expect(result.items).toEqual([
+      ["a", "1"],
+      ["d", "4"],
+    ])
   })
 })

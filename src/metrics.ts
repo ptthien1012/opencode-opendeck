@@ -47,6 +47,12 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}m`
 }
 
+/** Tokens/sec for display: "–" when unknown, one decimal under 10, else rounded ("42"). */
+export function formatRate(rate: number | undefined): string {
+  if (rate === undefined) return "–"
+  return rate < 10 ? rate.toFixed(1) : String(Math.round(rate))
+}
+
 /** --- Tokens ------------------------------------------------------------- */
 
 export type Turn = { input: number; output: number; ctx: number; created: number }
@@ -82,6 +88,44 @@ export function cacheShare(messages: readonly SessionMessageAssistant[]): number
     total += tokens.input + read + write
   }
   return total > 0 ? cached / total : 0
+}
+
+/**
+ * Assistant output speed in tokens per second. Counts generated tokens only
+ * (`tokens.output + tokens.reasoning`), never input or cache tokens, so the
+ * number reflects how fast the model streamed, not how big the prompt was.
+ * Only messages with token usage and a numeric `time.completed` later than
+ * `time.created` qualify, and turns shorter than `minMs` (default 500ms) are
+ * skipped as too noisy.
+ *
+ * `last` is the newest qualifying message (by `time.created`); `avg` is
+ * time-weighted over all qualifying messages. Both are undefined when nothing
+ * qualifies.
+ */
+export function tokRate(
+  messages: readonly SessionMessageAssistant[],
+  minMs = 500,
+): { last: number | undefined; avg: number | undefined } {
+  let genAll = 0
+  let msAll = 0
+  let lastRate: number | undefined
+  let lastCreated = Number.NEGATIVE_INFINITY
+  for (const message of messages) {
+    const tokens = message.tokens
+    if (!tokens) continue
+    const end = message.time.completed
+    if (typeof end !== "number" || !(end > message.time.created)) continue
+    const gen = tokens.output + tokens.reasoning
+    const ms = end - message.time.created
+    if (gen <= 0 || ms < minMs) continue
+    genAll += gen
+    msAll += ms
+    if (message.time.created > lastCreated) {
+      lastCreated = message.time.created
+      lastRate = gen / (ms / 1000)
+    }
+  }
+  return { last: lastRate, avg: msAll > 0 ? genAll / (msAll / 1000) : undefined }
 }
 
 export type SessionStats = {

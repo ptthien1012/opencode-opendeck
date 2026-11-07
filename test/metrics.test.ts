@@ -5,11 +5,13 @@ import {
   executeTarget,
   filesTouched,
   formatDuration,
+  formatRate,
   hbar,
   recentErrors,
   sessionStats,
   sparkline,
   splitPatch,
+  tokRate,
   toolState,
   turnSeries,
 } from "../src/metrics.ts"
@@ -74,6 +76,49 @@ describe("tokens", () => {
   test("cacheShare is cached / all input", () => {
     expect(cacheShare(messages)).toBeCloseTo(96 / 110)
     expect(cacheShare([])).toBe(0)
+  })
+})
+
+describe("tokRate", () => {
+  test("empty input gives undefined last and avg", () => {
+    expect(tokRate([])).toEqual({ last: undefined, avg: undefined })
+  })
+  test("output plus reasoning over the streamed time", () => {
+    const messages = [assistant({ tokens: tokens(0, 100, 0, 0, 20), time: { created: 0, completed: 2_000 } })]
+    expect(tokRate(messages)).toEqual({ last: 60, avg: 60 })
+  })
+  test("messages without completed time are ignored", () => {
+    const messages = [
+      assistant({ tokens: tokens(0, 100), time: { created: 0 } }),
+      assistant({ tokens: tokens(0, 50), time: { created: 1_000, completed: 2_000 } }),
+    ]
+    expect(tokRate(messages)).toEqual({ last: 50, avg: 50 })
+  })
+  test("messages under minMs are ignored", () => {
+    const messages = [
+      assistant({ tokens: tokens(0, 100), time: { created: 0, completed: 100 } }),
+      assistant({ tokens: tokens(0, 30), time: { created: 1_000, completed: 2_000 } }),
+    ]
+    expect(tokRate(messages)).toEqual({ last: 30, avg: 30 })
+    expect(tokRate(messages, 100)).toEqual({ last: 30, avg: 130 / 1.1 })
+  })
+  test("avg is time-weighted and last comes from the newest message", () => {
+    const messages = [
+      assistant({ tokens: tokens(0, 100), time: { created: 2_000, completed: 5_000 } }),
+      assistant({ tokens: tokens(0, 100), time: { created: 0, completed: 1_000 } }),
+    ]
+    const rate = tokRate(messages)
+    expect(rate.avg).toBe(50)
+    expect(rate.last).toBeCloseTo(100 / 3)
+  })
+})
+
+describe("formatRate", () => {
+  test("undefined, one decimal under 10, rounded above", () => {
+    expect(formatRate(undefined)).toBe("–")
+    expect(formatRate(7.44)).toBe("7.4")
+    expect(formatRate(0)).toBe("0.0")
+    expect(formatRate(42.4)).toBe("42")
   })
 })
 

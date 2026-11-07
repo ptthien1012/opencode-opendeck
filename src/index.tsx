@@ -48,6 +48,16 @@ export default Plugin.define({
           enabled: () => !deck.isFullRoute(),
           run: () => deck.openFullview(),
         },
+        {
+          // Palette-only: a single-letter global bind would steal chat typing.
+          id: "opendeck.toggleSidebar",
+          title: "Opendeck: collapse/expand sidebar",
+          description: "Collapse or expand the Opendeck sidebar panel",
+          group: "Opendeck",
+          palette: true,
+          bind: false,
+          run: () => deck.toggleCollapsed(),
+        },
       ],
     }))
 
@@ -151,6 +161,36 @@ export default Plugin.define({
           bind: "4",
           enabled: () => deck.isFullRoute(),
           run: () => deck.setFullTab("files"),
+        },
+        // Agents tab: j/k move the keyboard selection, enter opens it. The
+        // commands stay inert on the other tabs (each tab has its own page
+        // keys), so plain j/k/enter keep their host meaning elsewhere.
+        {
+          id: "opendeck.agent.next",
+          title: "Opendeck: select next agent",
+          description: "Move the Agents tab selection down one row",
+          group: "Opendeck",
+          bind: "j",
+          enabled: () => deck.isFullRoute() && deck.fullTab() === "agents",
+          run: () => deck.moveAgentSel(1),
+        },
+        {
+          id: "opendeck.agent.prev",
+          title: "Opendeck: select previous agent",
+          description: "Move the Agents tab selection up one row",
+          group: "Opendeck",
+          bind: "k",
+          enabled: () => deck.isFullRoute() && deck.fullTab() === "agents",
+          run: () => deck.moveAgentSel(-1),
+        },
+        {
+          id: "opendeck.agent.open",
+          title: "Opendeck: open selected agent",
+          description: "Dive into the agent selected on the Agents tab",
+          group: "Opendeck",
+          bind: "enter",
+          enabled: () => deck.isFullRoute() && deck.fullTab() === "agents",
+          run: () => deck.openAgentSel(),
         },
         {
           bind: "q",
@@ -450,6 +490,13 @@ export default Plugin.define({
         { bind: "?", enabled: helpOn, run: () => deck.closeHelp() },
         { bind: "shift+?", enabled: helpOn, run: () => deck.closeHelp() },
         { bind: "shift+/", enabled: helpOn, run: () => deck.closeHelp() },
+        // Scroll the help list: same shape as the diff page's patch keys.
+        { bind: "j", enabled: helpOn, run: () => deck.scrollHelp(1) },
+        { bind: "down", enabled: helpOn, run: () => deck.scrollHelp(1) },
+        { bind: "k", enabled: helpOn, run: () => deck.scrollHelp(-1) },
+        { bind: "up", enabled: helpOn, run: () => deck.scrollHelp(-1) },
+        { bind: "g", enabled: helpOn, run: () => deck.setHelpScroll(0) },
+        { bind: "shift+g", enabled: helpOn, run: () => deck.setHelpScroll(1_000_000) },
       ],
     }))
 

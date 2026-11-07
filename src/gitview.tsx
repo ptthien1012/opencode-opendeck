@@ -8,7 +8,7 @@
 import { usePlugin } from "@opencode/plugin/tui"
 import type { BoxRenderable, RGBA } from "@opentui/core"
 import { createEffect, createMemo, createResource, createSignal, onMount, Show, untrack } from "solid-js"
-import { maskSecrets, truncate } from "./format.js"
+import { fit, maskSecrets, truncate } from "./format.js"
 import { loadGraph, type GraphCommit } from "./git.js"
 import type { Deck } from "./state.js"
 import { KeyHints, Marker, Rule, ScrollList, glyph } from "./ui.js"
@@ -17,14 +17,6 @@ const HASH_W = 8
 const AUTHOR_W = 12
 const TIME_W = 14
 const GRAPH_MAX = 16
-
-/** Fit `text` into exactly `width` cells: truncate, then pad (left or right). */
-function fit(text: string, width: number, alignRight = false): string {
-  const w = Math.max(0, Math.floor(width))
-  const cut = truncate(text, w)
-  const pad = " ".repeat(Math.max(0, w - cut.length))
-  return alignRight ? pad + cut : cut + pad
-}
 
 export function GitView(props: { deck: Deck; sessionID?: string }) {
   const context = usePlugin()
@@ -103,6 +95,18 @@ export function GitView(props: { deck: Deck; sessionID?: string }) {
   const subjectW = createMemo(() =>
     Math.max(1, W() - barW - 2 - graphW() - 1 - HASH_W - 1 - 1 - AUTHOR_W - 1 - TIME_W),
   )
+  // Header shares one row: title + branch + commits take fixed width, cwd gets the rest.
+  const cwdW = createMemo(() => {
+    const branchText = branch() ? `⎇ ${branch()}` : ""
+    return Math.max(
+      0,
+      W() -
+        `${glyph.main} opendeck · git log`.length -
+        branchText.length -
+        `${commitRows().length} commits`.length -
+        6,
+    )
+  })
 
   // Keep the selected commit row inside the window (only when selection moves).
   const maxTop = createMemo(() => Math.max(0, rows().length - listH()))
@@ -192,14 +196,16 @@ export function GitView(props: { deck: Deck; sessionID?: string }) {
     >
       <box flexDirection="column" width="100%" marginBottom={1}>
         <box flexDirection="row" gap={1} width="100%">
-          <text wrapMode="none" fg={theme().hue.accent[200]}>
+          <text wrapMode="none" fg={theme().hue.accent[200]} flexShrink={0}>
             <b>{`${glyph.main} opendeck · git log`}</b>
           </text>
           <Show when={branch()}>
-            <text wrapMode="none" fg={theme().hue.accent[200]}>{`⎇ ${branch()}`}</text>
+            <text wrapMode="none" fg={theme().hue.accent[200]} flexShrink={0}>{`⎇ ${branch()}`}</text>
           </Show>
-          <text wrapMode="none" fg={theme().text.muted}>{`${commitRows().length} commits`}</text>
-          <text wrapMode="none" fg={theme().text.faint}>{truncate(cwd() ?? "", 60)}</text>
+          <text wrapMode="none" fg={theme().text.muted} flexShrink={0}>{`${commitRows().length} commits`}</text>
+          <Show when={cwdW() > 3}>
+            <text wrapMode="none" fg={theme().text.faint} flexShrink={1}>{truncate(cwd() ?? "", cwdW())}</text>
+          </Show>
         </box>
         <Rule w={W()} />
       </box>

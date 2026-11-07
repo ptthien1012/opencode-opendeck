@@ -14,6 +14,7 @@ import type { RGBA } from "@opentui/core"
 import { createEffect, createMemo } from "solid-js"
 import { spinner } from "./anim.js"
 import { maskSecrets, truncate } from "./format.js"
+import { tokRate } from "./metrics.js"
 import type { Deck, PermRecord } from "./state.js"
 
 /** Navigate into a session from a click handler; never throw into the host. */
@@ -226,7 +227,10 @@ export function useAgentState(deck: Deck, session: SessionInfo) {
   // Whole-session token totals (input incl cache, output incl reasoning).
   const tokens = createMemo(() => sessionTokens(context, session.id))
 
-  return { messages, lastAssistant, lastTool, status, running, statusColor, indicator, ctx, ctxRatio, model, elapsedMs, tokens }
+  // Tokens/sec of the latest turn and the streaming average.
+  const rate = createMemo(() => tokRate(messages()))
+
+  return { messages, lastAssistant, lastTool, status, running, statusColor, indicator, ctx, ctxRatio, model, elapsedMs, tokens, rate }
 }
 
 /** Cheap non-hook outcome for rows in the collapsed Done section. */

@@ -6,11 +6,11 @@
 
 import { usePlugin } from "@opencode/plugin/tui"
 import { createMemo, For, Show } from "solid-js"
-import { formatClock, formatTokens, maskSecrets, shortPath, truncate } from "./format.js"
+import { formatClock, formatTokens, maskSecrets, shortPath } from "./format.js"
 import { cacheShare, diffFromTools, filesTouched, formatDuration, recentErrors, sessionStats, sparkline, turnSeries } from "./metrics.js"
 import { agentName, assistantMessages, collectToolParts, sessionTokens } from "./shared.js"
 import type { Deck } from "./state.js"
-import { agentColor, bar, Section } from "./ui.js"
+import { agentColor, AgentCard, bar, cardInner, Section } from "./ui.js"
 
 const ERROR_ROWS = 4
 const FILE_ROWS = 6
@@ -83,36 +83,47 @@ export function AgentTokensPanel(props: PanelProps) {
     out.push({ id: props.sessionID, label: main?.agent ?? "main", total: mainTokens.input + mainTokens.output })
     for (const child of props.deck.children(props.sessionID)) {
       const tokens = sessionTokens(context, child.id)
-      out.push({ id: child.id, label: agentName(child, 12), total: tokens.input + tokens.output })
+      out.push({ id: child.id, label: agentName(child, 10_000), total: tokens.input + tokens.output })
     }
     const [first, ...rest] = out
     rest.sort((a, b) => b.total - a.total)
     return first ? [first, ...rest] : rest
   })
   const max = createMemo(() => Math.max(0, ...rows().map((row) => row.total)))
-  const labelW = 13
-  const totalW = 7
-  const barW = createMemo(() => Math.max(6, props.w - 2 - labelW - totalW - 2))
+  const inner = createMemo(() => cardInner(props.w - 2))
 
   return (
     <Show when={rows().length > 1 && max() > 0}>
       <Section title="tokens by agent" w={props.w}>
-        <For each={rows().slice(0, AGENT_BARS)}>
-          {(row) => (
-            <box flexDirection="row" gap={1} onMouseDown={() => props.deck.diveInto(row.id)}>
-              <text wrapMode="none" fg={agentColor(theme(), row.id)} width={labelW} flexShrink={0}>
-                {truncate(row.label, labelW - 1)}
-              </text>
-              <text wrapMode="none" fg={theme().text.faint} width={totalW} flexShrink={0}>
-                {formatTokens(row.total).padStart(totalW)}
-              </text>
-              {bar(row.total, max(), barW(), agentColor(theme(), row.id), theme().text.faint)}
-            </box>
-          )}
-        </For>
-        <Show when={rows().length > AGENT_BARS}>
-          <text wrapMode="none" fg={theme().text.faint}>+{rows().length - AGENT_BARS} more</text>
-        </Show>
+        <AgentCard w={props.w - 2} color={theme().text.faint}>
+          <box flexDirection="column" gap={1}>
+            <For each={rows().slice(0, AGENT_BARS)}>
+              {(row) => (
+                <box flexDirection="column" onMouseDown={() => props.deck.diveInto(row.id)}>
+                  <box flexDirection="row" justifyContent="space-between" width="100%">
+                    <text wrapMode="word" fg={agentColor(theme(), row.id)} flexGrow={1} flexShrink={1}>
+                      <b>{row.label}</b>
+                    </text>
+                    <text wrapMode="none" fg={theme().text.muted} flexShrink={0}>
+                      {formatTokens(row.total)}
+                    </text>
+                  </box>
+                  {bar(
+                    row.total,
+                    max(),
+                    inner(),
+                    agentColor(theme(), row.id),
+                    theme().text.faint,
+                    Number.POSITIVE_INFINITY,
+                  )}
+                </box>
+              )}
+            </For>
+            <Show when={rows().length > AGENT_BARS}>
+              <text wrapMode="none" fg={theme().text.faint}>+{rows().length - AGENT_BARS} more</text>
+            </Show>
+          </box>
+        </AgentCard>
       </Section>
     </Show>
   )
@@ -124,7 +135,6 @@ export function StatsPanel(props: PanelProps) {
   const theme = () => context.theme
   const stats = createMemo(() => sessionStats(context.data.session.message.list(props.sessionID)))
   const cache = createMemo(() => cacheShare(assistantMessages(context.data.session.message.list(props.sessionID))))
-  const inner = createMemo(() => Math.max(10, props.w - 2))
   const line1 = createMemo(() => {
     const s = stats()
     return `${formatDuration(s.durationMs)} · ${s.prompts} prompts · ${s.replies} replies`
@@ -140,8 +150,8 @@ export function StatsPanel(props: PanelProps) {
   return (
     <Show when={stats().replies > 0}>
       <Section title="session" right={stats().compactions > 0 ? `${stats().compactions} compactions` : undefined} w={props.w}>
-        <text wrapMode="none" fg={theme().text.base}>{truncate(line1(), inner())}</text>
-        <text wrapMode="none" fg={theme().text.muted}>{truncate(line2(), inner())}</text>
+        <text wrapMode="word" fg={theme().text.base}>{line1()}</text>
+        <text wrapMode="word" fg={theme().text.muted}>{line2()}</text>
       </Section>
     </Show>
   )
@@ -152,11 +162,10 @@ export function ErrorsPanel(props: PanelProps) {
   const context = usePlugin()
   const theme = () => context.theme
   const errors = createMemo(() => recentErrors(collectToolParts(context, props.deck.familyIds(props.sessionID)), ERROR_ROWS))
-  const inner = createMemo(() => Math.max(10, props.w - 2))
   const who = (sessionID: string) => {
     if (sessionID === props.sessionID) return "main"
     const session = context.data.session.get(sessionID)
-    return session ? agentName(session, 10) : "agent"
+    return session ? agentName(session, 10_000) : "agent"
   }
 
   return (
@@ -165,8 +174,8 @@ export function ErrorsPanel(props: PanelProps) {
         <For each={errors()}>
           {(error) => (
             <box onMouseDown={() => props.deck.diveInto(error.sessionID)}>
-              <text wrapMode="none" fg={theme().text.feedback.error.base}>
-                {truncate(`✗ ${formatClock(error.created)} ${who(error.sessionID)} · ${error.name}: ${maskSecrets(error.message)}`, inner())}
+              <text wrapMode="word" fg={theme().text.feedback.error.base}>
+                {`✗ ${formatClock(error.created)} ${who(error.sessionID)} · ${error.name}: ${maskSecrets(error.message)}`}
               </text>
             </box>
           )}
@@ -193,7 +202,7 @@ export function FilesPanel(props: PanelProps) {
       const session = context.data.session.get(id)
       out.push({
         id,
-        who: id === props.sessionID ? (session?.agent ?? "main") : session ? agentName(session, 12) : "agent",
+        who: id === props.sessionID ? (session?.agent ?? "main") : session ? agentName(session, 10_000) : "agent",
         files: names.map((file) => {
           const hit = stats.get(file)
           return { file, status: hit?.status ?? "modified", adds: hit?.additions, dels: hit?.deletions }
@@ -203,7 +212,6 @@ export function FilesPanel(props: PanelProps) {
     return out
   })
   const total = createMemo(() => groups().reduce((sum, group) => sum + group.files.length, 0))
-  const inner = createMemo(() => Math.max(10, props.w - 2))
   const glyph = (status: string) => (status === "added" ? "A" : status === "deleted" ? "D" : "M")
 
   return (
@@ -212,14 +220,14 @@ export function FilesPanel(props: PanelProps) {
         <For each={groups()}>
           {(group) => (
             <box flexDirection="column">
-              <text wrapMode="none" fg={agentColor(theme(), group.id)}>{truncate(`${group.who} (${group.files.length})`, inner())}</text>
+              <text wrapMode="word" fg={agentColor(theme(), group.id)}>{`${group.who} (${group.files.length})`}</text>
               <For each={group.files.slice(-FILE_ROWS)}>
                 {(entry) => {
                   const counts = entry.adds !== undefined ? ` +${entry.adds} -${entry.dels ?? 0}` : ""
                   return (
                     <box flexDirection="row" justifyContent="space-between" width="100%" onMouseDown={() => props.deck.openDiff(entry.file, props.sessionID)}>
-                      <text wrapMode="none" fg={theme().text.muted}>
-                        {truncate(`  ${glyph(entry.status)} ${maskSecrets(shortPath(entry.file, { max: 70 }))}`, Math.max(8, inner() - counts.length - 1))}
+                      <text wrapMode="word" fg={theme().text.muted} flexGrow={1} flexShrink={1}>
+                        {`  ${glyph(entry.status)} ${maskSecrets(shortPath(entry.file, { max: 10_000 }))}`}
                       </text>
                       <Show when={counts}>
                         <box flexDirection="row" flexShrink={0}>
