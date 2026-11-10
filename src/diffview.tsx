@@ -16,10 +16,10 @@
 import type { FileDiffInfo } from "@opencode/client"
 import { usePlugin } from "@opencode/plugin/tui"
 import type { BoxRenderable, RGBA } from "@opentui/core"
-import { createEffect, createMemo, createResource, createSignal, For, onMount, Show, untrack } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js"
 import type { JSX } from "solid-js"
 import { formatTokens, maskSecrets, truncate } from "./format.js"
-import { buildTree, flattenTree, loadCommitFiles, loadWorking, type GitFileDiff, type TreeNode } from "./git.js"
+import { buildTree, flattenTree, isAgentPath, loadCommitFiles, loadWorking, type GitFileDiff, type TreeNode } from "./git.js"
 import { diffFromTools, splitPatch, type SplitCell, type SplitRow } from "./metrics.js"
 import { collectToolParts } from "./shared.js"
 import type { Deck } from "./state.js"
@@ -76,6 +76,8 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
     if (!id) return []
     return diffFromTools(collectToolParts(context, deck.familyIds(id)))
   })
+  // Paths any agent in this session family edited (edit/write tool metadata).
+  const agentPaths = createMemo(() => new Set(local().map((file) => file.file)))
   const useLocal = createMemo(() => local().length > 0)
   const [files] = createResource(
     () => props.sessionID,
@@ -177,6 +179,22 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
   // it is clamped to the loaded list here.
   const sel = createMemo(() => Math.max(0, Math.min(list().length - 1, deck.diffSel())))
   const selected = createMemo(() => list()[sel()])
+
+  // Publish the selected working-tree file so the git write keys know their target.
+  createEffect(() => {
+    const file = selected()
+    const dir = cwd()
+    if (source() === "git" && dir && file) {
+      deck.setDiffGitTarget({
+        cwd: dir,
+        file: file.file,
+        status: file.status,
+        staged: file.staged,
+        untracked: file.untracked,
+      })
+    } else deck.setDiffGitTarget(undefined)
+  })
+  onCleanup(() => deck.setDiffGitTarget(undefined))
 
   const fileIndexByPath = createMemo(() => {
     const map = new Map<string, number>()
@@ -471,11 +489,12 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
     }
     const fileIndex = fileIndexByPath().get(node.path) ?? -1
     const staged = fileIndex >= 0 && list()[fileIndex]?.staged === true
+    const manual = source() === "git" && !isAgentPath(node.path, agentPaths())
     const isSel = fileIndex >= 0 && fileIndex === sel()
     const head = `${indent}${statusGlyph(node.status)}`
-    const nameW = Math.max(1, mainW - head.length - (staged ? 1 : 0) - 1)
+    const nameW = Math.max(1, mainW - head.length - (staged ? 1 : 0) - (manual ? 1 : 0) - 1)
     const name = truncate(node.name, nameW)
-    const pad = " ".repeat(Math.max(0, mainW - head.length - (staged ? 1 : 0) - 1 - name.length))
+    const pad = " ".repeat(Math.max(0, mainW - head.length - (staged ? 1 : 0) - (manual ? 1 : 0) - 1 - name.length))
     return (
       <box
         flexDirection="row"
@@ -490,6 +509,11 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
         <Show when={staged}>
           <text wrapMode="none" fg={theme().text.faint}>
             ●
+          </text>
+        </Show>
+        <Show when={manual}>
+          <text wrapMode="none" fg={theme().text.faint}>
+            ✎
           </text>
         </Show>
         <text wrapMode="none" fg={isSel ? theme().text.base : theme().text.muted}>{` ${name}${pad}`}</text>
@@ -561,23 +585,25 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
     )
   }
 
-  const hints = createMemo((): [string, string][] =>
-    deck.diffFocus() === "tree"
-      ? [
-          ["j/k", "move"],
-          ["enter", "open"],
-          ["tab", "patch"],
-          ["1/2/3", "edits/git/log"],
-          ["s", "split"],
-          ["esc", "back"],
-        ]
-      : [
-          ["j/k", "line"],
-          ["n/p", "hunk"],
-          ["tab", "files"],
-          ["esc", "back"],
-        ],
-  )
+  const hints = createMemo((): [string, string][] => {
+    if (deck.diffFocus() !== "tree")
+      return [
+        ["j/k", "line"],
+        ["n/p", "hunk"],
+        ["tab", "files"],
+        ["esc", "back"],
+      ]
+    const tree: [string, string][] = [
+      ["j/k", "move"],
+      ["enter", "open"],
+      ["tab", "patch"],
+      ["1/2/3", "edits/git/log"],
+      ["s", "split"],
+    ]
+    if (source() === "git" && deck.gitWriteEnabled()) tree.push(["space", "stage"], ["c", "commit"])
+    tree.push(["esc", "back"])
+    return tree
+  })
 
   return (
     <box

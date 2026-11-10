@@ -26,8 +26,6 @@ import {
 } from "./shared.js"
 import { AgentCard, Gauge, Marker, Section, agentColor, cardInner } from "./ui.js"
 
-const DONE_LIMIT = 12
-
 type Width = () => number
 
 /** --- Context & tokens -------------------------------------------------- */
@@ -291,12 +289,12 @@ function DoneBlock(props: { deck: Deck; done: SessionInfo[]; ok: number; failed:
         </Show>
       </box>
       <Show when={props.deck.doneOpen()}>
-        <For each={props.done.slice(0, DONE_LIMIT)}>
+        <For each={props.done.slice(0, props.deck.config.doneLimit)}>
           {(child) => <DoneRow deck={props.deck} session={child} w={props.w} />}
         </For>
-        <Show when={props.done.length > DONE_LIMIT}>
+        <Show when={props.done.length > props.deck.config.doneLimit}>
           <text wrapMode="none" fg={theme().text.faint}>
-            {`+${props.done.length - DONE_LIMIT} more`}
+            {`+${props.done.length - props.deck.config.doneLimit} more`}
           </text>
         </Show>
       </Show>
@@ -460,6 +458,48 @@ function PermissionsSection(props: { deck: Deck; sessionID: string; w: Width }) 
 
 /** --- Root -------------------------------------------------------------- */
 
+/** One-line git summary under ctx: branch plus working-tree counts; click opens the git diff. */
+function GitLine(props: { deck: Deck; w: Width }) {
+  const context = usePlugin()
+  const theme = () => context.theme
+  const info = createMemo(() => props.deck.gitSummary())
+  const counts = createMemo(() => {
+    const s = info()?.summary
+    if (!s) return ""
+    return s.files === 0 ? "" : ` +${s.additions} −${s.deletions}`
+  })
+  const middle = createMemo(() => {
+    const s = info()?.summary
+    if (!s) return ""
+    return s.files === 0 ? " · clean" : ` · ${s.files} ${s.files === 1 ? "file" : "files"}`
+  })
+  const head = createMemo(() =>
+    truncate(`⎇ ${info()?.branch ?? "git"}`, Math.max(4, props.w() - middle().length - counts().length)),
+  )
+  return (
+    <Show when={info() && (info()!.branch !== undefined || info()!.summary !== undefined)}>
+      <box
+        flexDirection="row"
+        onMouseDown={() => {
+          props.deck.openDiff()
+          props.deck.setDiffSource("git")
+        }}
+      >
+        <text wrapMode="none" fg={theme().text.muted}>
+          {head()}
+        </text>
+        <text wrapMode="none" fg={info()?.summary?.files === 0 ? theme().text.faint : theme().text.muted}>
+          {middle()}
+        </text>
+        <Show when={counts()}>
+          <text wrapMode="none" fg={theme().text.feedback.success.base}>{` +${info()?.summary?.additions ?? 0}`}</text>
+          <text wrapMode="none" fg={theme().text.feedback.error.base}>{` −${info()?.summary?.deletions ?? 0}`}</text>
+        </Show>
+      </box>
+    </Show>
+  )
+}
+
 export function Sidebar(props: { deck: Deck; sessionID: string }) {
   const context = usePlugin()
   const theme = () => context.theme
@@ -534,6 +574,7 @@ export function Sidebar(props: { deck: Deck; sessionID: string }) {
       </box>
       <Show when={!props.deck.collapsed()}>
         <ContextLines deck={props.deck} sessionID={props.sessionID} w={w} />
+        <GitLine deck={props.deck} w={w} />
         <Show when={idle()}>
           <text wrapMode="none" fg={theme().text.faint}>
             {"  "}· idle

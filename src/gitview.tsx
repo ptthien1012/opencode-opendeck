@@ -52,7 +52,7 @@ export function GitView(props: { deck: Deck; sessionID?: string }) {
     () => ({ cwd: cwd(), tick: deck.gitTick() }),
     async (key): Promise<{ rows?: GraphCommit[]; error?: string }> => {
       if (!key.cwd) return { error: "no working directory" }
-      const result = await loadGraph(key.cwd, 300)
+      const result = await loadGraph(key.cwd, deck.config.gitLogLimit)
       return typeof result === "string" ? { error: result } : { rows: result }
     },
   )
@@ -213,7 +213,7 @@ export function GitView(props: { deck: Deck; sessionID?: string }) {
         when={log()?.error === undefined}
         fallback={<text wrapMode="none" fg={theme().text.muted}>{`git: ${truncate(maskSecrets(log()?.error ?? ""), 100)}`}</text>}
       >
-        <Show when={rows().length > 0} fallback={<text wrapMode="none" fg={theme().text.muted}>loading git log…</text>}>
+        <Show when={rows().length > 0} fallback={<text wrapMode="none" fg={theme().text.muted}>{log.loading ? "loading git log…" : "no commits yet"}</text>}>
           <ScrollList
             items={rows()}
             top={top()}

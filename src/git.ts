@@ -309,6 +309,73 @@ export function splitPatchByFile(patch: string): Map<string, string> {
   return map
 }
 
+export type GitFileDiff = {
+  file: string
+  patch: string
+  additions: number
+  deletions: number
+  status: "added" | "deleted" | "modified"
+  staged?: boolean
+  untracked?: boolean
+}
+
+/** Totals for a one-line working-tree summary (untracked files count as files with 0/0). */
+export type WorkingSummary = { files: number; additions: number; deletions: number }
+
+export function summarizeWorking(files: readonly GitFileDiff[]): WorkingSummary {
+  let additions = 0
+  let deletions = 0
+  for (const f of files) {
+    additions += f.additions
+    deletions += f.deletions
+  }
+  return { files: files.length, additions, deletions }
+}
+
+/** Write actions the diff page can run (opt-in via the gitWrite option). */
+export type GitWriteAction = "stage" | "unstage" | "stage-all" | "discard" | "commit"
+export type GitWriteTarget = { file?: string; status?: GitFileDiff["status"]; untracked?: boolean; message?: string }
+
+/**
+ * argv for one write action, or undefined when the target is incomplete.
+ * File paths come from `git status` (repo-root relative) while git runs with
+ * `-C <session dir>` (maybe a subdirectory), so every pathspec is anchored at
+ * the repo top and taken literally: `:(top,literal)<path>`.
+ */
+export function gitWriteArgs(action: GitWriteAction, target: GitWriteTarget): string[] | undefined {
+  const hasFile = typeof target.file === "string" && target.file !== ""
+  const file = `:(top,literal)${target.file ?? ""}`
+  switch (action) {
+    case "stage":
+      return hasFile ? ["add", "--", file] : undefined
+    case "unstage":
+      return hasFile ? ["restore", "--staged", "--", file] : undefined
+    case "stage-all":
+      return ["add", "-A"]
+    case "discard":
+      if (!hasFile) return undefined
+      if (target.untracked) return ["clean", "-f", "--", file]
+      if (target.status === "added") return ["rm", "-f", "--", file]
+      return ["restore", "--source=HEAD", "--staged", "--worktree", "--", file]
+    case "commit": {
+      const message = typeof target.message === "string" ? target.message.trim() : ""
+      return message !== "" ? ["commit", "-m", message] : undefined
+    }
+  }
+  return undefined
+}
+
+/** Whether a repo-relative git path was edited by an agent (agent paths may be absolute). */
+export function isAgentPath(gitPath: string, agentPaths: ReadonlySet<string>): boolean {
+  if (gitPath === "") return false
+  if (agentPaths.has(gitPath)) return true
+  const suffix = "/" + gitPath
+  for (const p of agentPaths) {
+    if (p.endsWith(suffix)) return true
+  }
+  return false
+}
+
 // ---------------------------------------------------------------------------
 // Layer B — runtime wrappers (defensive, never throw)
 // ---------------------------------------------------------------------------
@@ -377,16 +444,6 @@ export async function loadGraph(cwd: string, limit = 200): Promise<GraphCommit[]
   return parseGraphLog(res.out)
 }
 
-export type GitFileDiff = {
-  file: string
-  patch: string
-  additions: number
-  deletions: number
-  status: "added" | "deleted" | "modified"
-  staged?: boolean
-  untracked?: boolean
-}
-
 export async function loadCommitFiles(cwd: string, hash: string): Promise<GitFileDiff[] | string> {
   const statRes = await git(cwd, ["show", "--format=", "--numstat", "-z", "--find-renames", hash])
   if (!statRes.ok) return statRes.error
@@ -437,4 +494,40 @@ export async function loadWorking(cwd: string): Promise<GitFileDiff[] | string> 
     })
   }
   return out
+}
+
+/**
+ * Counts-only working-tree summary for the sidebar: `status` + `diff --numstat`
+ * (no patch text), so frequent refreshes stay cheap.
+ */
+export async function loadWorkingSummary(cwd: string): Promise<WorkingSummary | string> {
+  const statusRes = await git(cwd, ["status", "--porcelain=v1", "-z"])
+  if (!statusRes.ok) return statusRes.error
+  const entries = parseStatusZ(statusRes.out)
+  let statRes = await git(cwd, ["diff", "--numstat", "-z", "HEAD"])
+  if (!statRes.ok) statRes = await git(cwd, ["diff", "--numstat", "-z"])
+  const stats = statRes.ok ? parseNumstatZ(statRes.out) : []
+  let additions = 0
+  let deletions = 0
+  for (const st of stats) {
+    additions += st.additions
+    deletions += st.deletions
+  }
+  return { files: entries.length, additions, deletions }
+}
+
+/** Current branch name via git (fallback when the host has no vcs info). */
+export async function loadBranch(cwd: string): Promise<string | undefined> {
+  const res = await git(cwd, ["branch", "--show-current"])
+  if (!res.ok) return undefined
+  const branch = res.out.trim()
+  return branch !== "" ? branch : undefined
+}
+
+/** Run one write action; returns undefined on success, else a short error. */
+export async function runGitWrite(cwd: string, action: GitWriteAction, target: GitWriteTarget): Promise<string | undefined> {
+  const args = gitWriteArgs(action, target)
+  if (args === undefined) return "invalid git action"
+  const res = await git(cwd, args, action === "commit" ? 15_000 : 4_000)
+  return res.ok ? undefined : res.error
 }

@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test"
 import {
   buildTree,
   flattenTree,
+  gitWriteArgs,
+  isAgentPath,
   parseGraphLog,
   parseNumstatZ,
   parseStatusZ,
   splitPatchByFile,
+  summarizeWorking,
 } from "../src/git.ts"
 
 // ---------------------------------------------------------------------------
@@ -271,5 +274,90 @@ describe("splitPatchByFile", () => {
 
   test("empty patch yields an empty map", () => {
     expect(splitPatchByFile("")).toEqual(new Map())
+  })
+})
+
+// ---------------------------------------------------------------------------
+// summarizeWorking
+// ---------------------------------------------------------------------------
+
+describe("summarizeWorking", () => {
+  test("empty list is all zeros", () => {
+    expect(summarizeWorking([])).toEqual({ files: 0, additions: 0, deletions: 0 })
+  })
+
+  test("counts every file and sums +/- including untracked 0/0", () => {
+    const s = summarizeWorking([
+      { file: "a.ts", patch: "", additions: 3, deletions: 1, status: "modified" },
+      { file: "b.ts", patch: "", additions: 10, deletions: 0, status: "added" },
+      { file: "c.ts", patch: "", additions: 0, deletions: 7, status: "deleted" },
+      { file: "d.ts", patch: "", additions: 0, deletions: 0, status: "added", untracked: true },
+    ])
+    expect(s).toEqual({ files: 4, additions: 13, deletions: 8 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// gitWriteArgs
+// ---------------------------------------------------------------------------
+
+describe("gitWriteArgs", () => {
+  test("stage / unstage / stage-all argv", () => {
+    expect(gitWriteArgs("stage", { file: "a.ts" })).toEqual(["add", "--", ":(top,literal)a.ts"])
+    expect(gitWriteArgs("unstage", { file: "a.ts" })).toEqual(["restore", "--staged", "--", ":(top,literal)a.ts"])
+    expect(gitWriteArgs("stage-all", {})).toEqual(["add", "-A"])
+  })
+
+  test("discard branches: untracked, added, modified", () => {
+    expect(gitWriteArgs("discard", { file: "u.ts", untracked: true })).toEqual(["clean", "-f", "--", ":(top,literal)u.ts"])
+    expect(gitWriteArgs("discard", { file: "n.ts", status: "added" })).toEqual(["rm", "-f", "--", ":(top,literal)n.ts"])
+    expect(gitWriteArgs("discard", { file: "m.ts", status: "modified" })).toEqual([
+      "restore",
+      "--source=HEAD",
+      "--staged",
+      "--worktree",
+      "--",
+      ":(top,literal)m.ts",
+    ])
+  })
+
+  test("pathspecs are anchored at the repo top, so a subdirectory cwd still hits the right file", () => {
+    expect(gitWriteArgs("stage", { file: "src/a.ts" })).toEqual(["add", "--", ":(top,literal)src/a.ts"])
+    expect(gitWriteArgs("stage", { file: "weird*[name].ts" })).toEqual(["add", "--", ":(top,literal)weird*[name].ts"])
+  })
+
+  test("commit message is trimmed", () => {
+    expect(gitWriteArgs("commit", { message: "  fix bug  " })).toEqual(["commit", "-m", "fix bug"])
+  })
+
+  test("undefined for missing file or empty commit message", () => {
+    expect(gitWriteArgs("stage", {})).toBeUndefined()
+    expect(gitWriteArgs("stage", { file: "" })).toBeUndefined()
+    expect(gitWriteArgs("unstage", {})).toBeUndefined()
+    expect(gitWriteArgs("discard", {})).toBeUndefined()
+    expect(gitWriteArgs("commit", {})).toBeUndefined()
+    expect(gitWriteArgs("commit", { message: "   " })).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// isAgentPath
+// ---------------------------------------------------------------------------
+
+describe("isAgentPath", () => {
+  test("exact repo-relative match", () => {
+    expect(isAgentPath("src/a.ts", new Set(["src/a.ts"]))).toBe(true)
+  })
+
+  test("absolute agent path matches by suffix", () => {
+    expect(isAgentPath("src/a.ts", new Set(["/repo/src/a.ts"]))).toBe(true)
+  })
+
+  test("no false positive on partial filename", () => {
+    expect(isAgentPath("b.ts", new Set(["/x/ab.ts"]))).toBe(false)
+  })
+
+  test("empty git path is never a match", () => {
+    expect(isAgentPath("", new Set(["/x/a.ts"]))).toBe(false)
   })
 })

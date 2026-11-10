@@ -1,13 +1,14 @@
 /** @jsxImportSource @opentui/solid */
 // Extra full-view panels: terminal charts (tokens per turn, ctx % per turn,
-// tokens per agent), session stats, recent tool errors and files touched.
+// tokens per agent), files changed per agent, session stats and recent tool
+// errors.
 // Read-only memos over the host store; no timers, no writes. All numbers come
 // from the pure helpers in metrics.ts.
 
 import { usePlugin } from "@opencode/plugin/tui"
 import { createMemo, For, Show } from "solid-js"
 import { formatClock, formatTokens, maskSecrets, shortPath } from "./format.js"
-import { cacheShare, diffFromTools, filesTouched, formatDuration, recentErrors, sessionStats, sparkline, turnSeries } from "./metrics.js"
+import { cacheShare, diffFromTools, formatDuration, recentErrors, sessionStats, sparkline, turnSeries } from "./metrics.js"
 import { agentName, assistantMessages, collectToolParts, sessionTokens } from "./shared.js"
 import type { Deck } from "./state.js"
 import { agentColor, AgentCard, bar, cardInner, Section } from "./ui.js"
@@ -196,8 +197,7 @@ export function FilesPanel(props: PanelProps) {
     const out: { id: string; who: string; files: { file: string; status: string; adds?: number; dels?: number }[] }[] = []
     for (const id of ids) {
       const stats = new Map(diffFromTools(collectToolParts(context, [id])).map((diff) => [diff.file, diff]))
-      const names = filesTouched(assistantMessages(context.data.session.message.list(id)))
-      for (const file of stats.keys()) if (!names.includes(file)) names.push(file)
+      const names = [...stats.keys()]
       if (names.length === 0) continue
       const session = context.data.session.get(id)
       out.push({
