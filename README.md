@@ -1,78 +1,94 @@
-# opencode-opendeck
+# opendeck
 
-Live session dashboard for the OpenCode TUI — a clone of
-[claude-flightdeck](https://github.com/scasella/claude-flightdeck) for
-[OpenCode](https://opencode.ai) **v2** (`2.0.0+`). Two surfaces: a smart
-compact sidebar (`sidebar.content` slot) and a full-screen view (a plugin
-route — the widest surface the v2 API offers; `session.panel` was the
-alternative but stays narrower and session-scoped). Read-only observer: no
-event mutation, no network, no file writes, no state persisted across TUI
-restarts.
+**A live mission-control dashboard for [OpenCode](https://opencode.ai) — see every agent, every token and every changed file without leaving the TUI.**
 
-English | [Tiếng Việt](#tiếng-việt)
+![OpenCode v2](https://img.shields.io/badge/OpenCode-v2-111?style=flat-square)
+![License MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
+![Bun](https://img.shields.io/badge/runtime-bun-f9f1e1?style=flat-square)
+![No network](https://img.shields.io/badge/network-none-success?style=flat-square)
 
-## Full view
+<!-- Screenshot placeholder: drop a real capture at docs/screenshot.png (or a GIF at docs/demo.gif) and uncomment:
+![opendeck in the OpenCode TUI](docs/screenshot.png)
+-->
 
-Open it with `/opendeck` (slash command or command palette) or the `⤢ open`
-link in the sidebar. `q` or `esc` returns to the session. Three tabs
-(`1`/`2`/`3`): **Overview** (ctx, session stats, charts, errors, pending
-permissions), **Agents** (cards or lanes via `t`, `j/k` select, `enter` open,
-tokens per agent, tools), **Activity** (full-height timeline plus permission
-gate history). `f` opens the diff page, `u` usage, `?` help. There is no default
-keybind (`ctrl+g` belongs to the host's `session.first`); bind your own via the
-`opendeck.open` command id in your keybinds config. The full view's keys live in
-a dedicated keymap mode that only exists while it is the current route, so they
-never fire over the prompt or a dialog on top.
+When OpenCode fans out into subagents, the chat scroll stops telling you what is
+going on. opendeck adds a compact sidebar and a set of full-screen pages that
+answer the questions you actually have mid-run:
 
-- **Layout** — two columns at ≥110 terminal cols (left: context and session
-  stats, pending permissions; right: agents), stacked below.
-- **Agents** — a card grid between connector rails (`┬` fan-out above, `┴`
-  merge below) with packets marching while anything runs; or swimlanes on one
-  shared time axis, each bar the agent's lifetime with a pulsing live head.
-- **Diff page** (`f`) — file tree + patch, tabs `1` edits / `2` git / `3` log
-  (the git log is reachable only from here). `j/k` move, `enter`/`l` open,
-  `h` close dir, `tab` tree⇄patch, `pgup/pgdn` and `ctrl+d/u` scroll, `n/p`
-  hunk, `g/G` top/bottom, `s` split/unified, `r` refresh, `?` help, `q` back.
+- *How full is my context, and how fast am I burning tokens?*
+- *Which agents are running right now, what are they doing, and for how long?*
+- *Is anything waiting for my approval?*
+- *Which files changed — by which agent — and what did I edit by hand?*
 
-## What the sidebar shows
+Inspired by [claude-flightdeck](https://github.com/scasella/claude-flightdeck), rebuilt for the OpenCode v2 plugin API.
 
-- **Header** — `▾ opendeck · model`; click to collapse.
-- **Context** — one line: `ctx ▰▱ NN% · in X · out Y` (accent <70%, warning
-  70–85%, error >85%; spinner while the session runs).
-- **needs approval** — pending permission requests only; hidden when none.
-- **Agents** — each active agent on two lines (spinner, name, short model,
-  current tool + arg (secret-masked), elapsed clock). Inactive agents collapse
-  to one header line (`▸ Done 5 ✓4 ✗1`); click to expand. Click an agent to
-  jump into that child session.
-- **⤺ back to Opendeck** — only while a return to the full view is pending.
-- **Footer** — `⤢ open · /opendeck`.
+## Features
 
-All rows are measured against the real slot width, truncated with an ellipsis,
-and never wrap.
+| | |
+|---|---|
+| **Context gauge** | `ctx ▰▰▰▱▱ 42%` with in/out tokens, colour shifts at 70% and 85%, compaction warning |
+| **Live agent tree** | every running subagent as a card or a swimlane: spinner, model, current tool, elapsed clock |
+| **Approvals** | pending permission requests pulse in the sidebar; full history on the Activity tab |
+| **Git at a glance** | `⎇ main · 5 files +120 −34` in the sidebar, refreshed on file events — no polling |
+| **Files by agent** | which agent touched which file; files changed outside any agent are marked `✎` |
+| **Diff page** | file tree + patch, split or unified, for session edits, the working tree or any commit |
+| **Git log** | `git log --graph --all`, open any commit's files |
+| **Opt-in git actions** | stage, unstage, discard and commit from the diff page (`gitWrite: true`) |
+| **Usage page** | 30d / 90d / 1y token, cache, model and tool totals with a heatmap and daily chart |
+| **Built for terminals** | one shared 120 ms ticker that stops when idle, scrollable pages, every row fits its width |
+| **Private by design** | no network calls, no session mutation, secrets masked in tool rows |
 
-## Animations
+## What it looks like
 
-Terminal-feasible pieces of claude-flightdeck's motion, on ONE shared 120ms
-ticker (created in `setup`, cleared on plugin cleanup) that stops entirely
-when nothing is running or animating — no idle CPU, no per-component timers:
+Sidebar (always visible next to the chat):
 
-- **Spinners** — braille frames (`⠋⠙⠹…`) on each running agent and on the
-  `ctx` label while the main session runs; `✓` / `✗` when done / errored.
-- **Live clocks** — per-agent elapsed times tick while running.
-- **Rails & swimlanes** — the full view's card grid sits between rails with
-  lit packets (`•●`) marching while any agent runs; in lanes mode each running
-  bar's head pulses on the shared time axis.
-- **Context bar** — tweens to new readings over ~400ms (ease-out) and shifts
-  colour by threshold: accent <70%, warning 70–85%, error >85%.
-- **Flash & pulse** — new activity rows and permission requests flash accent
-  for ~1.5s then fade back; pending permissions pulse.
-- **Fan-out** — a newly spawned subagent plays a short `· → ◦ → ●` launch
-  sequence (~600ms) before its spinner takes over.
+```text
+▾ opendeck · claude-sonnet-4.5
+ctx ▰▰▰▰▱▱▱▱▱▱ 42% · in 84k · out 12k
+⎇ main · 5 files +120 −34
+── needs approval ─────────────
+ ! bash  rm -rf dist
+── agents ─────────────────────
+ ⠹ explore · haiku        02:14
+   read ./src/state.ts
+ ⠼ general · sonnet       00:41
+   edit ./src/sidebar.tsx
+ ▸ Done 3 ✓3
+⤢ open · /opendeck
+```
 
-## Install (local checkout)
+Full view, Agents tab (`/opendeck`):
 
-OpenCode v2 loads TUI plugins from the `plugins` array in the **global**
-`~/.config/opencode/cli.json` (`tui.json` is v1-only):
+```text
+◆ opendeck  Refactor the sidebar           ctx ▰▰▰▰▱▱▱▱▱▱ 42% · sonnet-4.5
+ 1 Agents   2 Activity
+──────────────────────────────────────────────────────────────────────────
+── main ─────────────────────────────────────────────────────── ● working
+ctx ▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱ 42%  84k/200k
+total in 84k (cache 71%) · out 12k
+── agents ─────────────────────────────────────────── 2 running · 3 done
+├─ ⠹ explore · haiku · read ./src/state.ts                       02:14
+└─ ⠼ general · sonnet · edit ./src/sidebar.tsx                   00:41
+── files changed ─────────────────────────────────────────── 5 · f diff
+general (2)
+  M ./src/sidebar.tsx                                           +43 -0
+  A ./src/config.ts                                             +48 -0
+1/2 tabs · j/k select · enter open · t cards/lanes · pgdn scroll · f changes
+```
+
+*(Illustrative — layout adapts to your terminal width and theme.)*
+
+## Quick start
+
+opendeck is a local-directory plugin for **OpenCode v2** (`2.0.0+`) and needs [Bun](https://bun.sh).
+
+```bash
+git clone https://github.com/ptthien97/opencode-opendeck.git
+cd opencode-opendeck
+bun install && bun run build
+```
+
+Add the absolute path to the `plugins` array in `~/.config/opencode/cli.json`:
 
 ```json
 {
@@ -80,74 +96,122 @@ OpenCode v2 loads TUI plugins from the `plugins` array in the **global**
 }
 ```
 
-For a local directory, v2 resolves the physical `tui.js` in the repo root,
-which re-exports the build output — so build first:
+Restart OpenCode. The widget appears in the session sidebar (`ctrl+x` then `b`
+if the sidebar is hidden). Type `/opendeck` for the full view, `?` for every key.
 
-```bash
-bun install
-bun run build   # writes dist/index.js
+## Pages and keys
+
+| Page | Open | Keys |
+|---|---|---|
+| **Full view** | `/opendeck`, palette, or `⤢ open` | `1` Agents · `2` Activity · `j/k` select agent · `enter` open it · `t` cards/lanes · `pgup/pgdn` `ctrl+d/u` `g/G` scroll · `q`/`esc` back |
+| **Diff** | `f`, the sidebar git line, or a file row | `1` edits · `2` git · `3` log · `j/k` move · `enter/l` open · `h` close dir · `tab` tree⇄patch · `n/p` hunk · `s` split/unified · `r` refresh |
+| **Git log** | `3` on the diff page | `j/k` move · `enter` open commit · `pgup/pgdn` `g/G` · `r` reload |
+| **Usage** | `u` | `1/2/3` 30d/90d/1y · `p` all projects ⇄ this project · `j/k` models · `r` reload |
+| **Help** | `?` anywhere | every key per page and the symbol legend |
+
+There is no default keybind to open the full view (`ctrl+g` belongs to the
+host's `session.first`); bind your own to the `opendeck.open` command id. All
+page keys live in keymap modes that exist only while that page is shown, so
+they never fire over the prompt or a dialog.
+
+## Options
+
+Everything is optional; any invalid value falls back to its default.
+
+```json
+{
+  "plugins": [
+    {
+      "package": "/absolute/path/to/opencode-opendeck",
+      "options": {
+        "animations": true,
+        "doneLimit": 12,
+        "gitLogLimit": 300,
+        "gitWrite": false,
+        "panels": { "stats": true, "charts": true, "errors": true, "files": true }
+      }
+    }
+  ]
+}
 ```
 
-Restart OpenCode. The widget appears in the session sidebar
-(`ctrl+x` then `b` if the sidebar is hidden).
+| Option | Default | What it does |
+|---|---|---|
+| `animations` | `true` | spinners, pulses, flashes, context tween, launch frames |
+| `doneLimit` | `12` (1–100) | finished agents listed under Done in the sidebar |
+| `gitLogLimit` | `300` (50–2000) | commits fetched for the git log |
+| `gitWrite` | `false` | enables `space` stage/unstage, `a` stage all, `x` discard, `c` commit on the diff page's git tab (with confirm / message prompts) |
+| `panels.*` | `true` | hide the `stats`, `charts`, `errors` or `files` panel on the Agents tab |
+
+UI preferences (collapsed sidebar, cards/lanes, Done open, tab, usage range and
+scope) are saved through the host's plugin storage and survive restarts.
+
+## How it stays light
+
+- **Read-only observer.** It reads the host's session store and listens to
+  events; it never replies to permissions or edits sessions. The only writes are
+  the opt-in `gitWrite` actions.
+- **No network.** Git runs locally via `git -C <dir>` with a timeout; pathspecs are
+  anchored at the repo root and taken literally.
+- **One timer.** A single 120 ms ticker drives every animation and stops entirely
+  when nothing is running. The git line refreshes on file, branch and tool events
+  (debounced), never on an interval.
+- **Secrets masked.** Tokens, bearer headers and `key=value` secrets are masked
+  in tool rows and errors.
+
+<details>
+<summary><b>Sidebar sections in detail</b></summary>
+
+- **Header** — `▾ opendeck · model`; click to collapse.
+- **Context** — `ctx ▰▱ NN% · in X · out Y`; accent <70%, warning 70–85%, error >85%; spinner while the session runs.
+- **Git** — `⎇ branch · N files +x −y` (or `· clean`); click opens the diff page on the git tab.
+- **needs approval** — pending permission requests only; hidden when none.
+- **Agents** — each active agent on two lines (spinner, name, short model, current tool + argument, elapsed clock). Finished agents collapse to `▸ Done 5 ✓4 ✗1`; click to expand. Click an agent to jump into its session.
+- **⤺ back to Opendeck** — shown while a return to the full view is pending.
+- **Footer** — `⤢ open · /opendeck`.
+
+Every row is measured against the real slot width, truncated with an ellipsis, and never wraps.
+</details>
+
+<details>
+<summary><b>Animations</b></summary>
+
+- **Spinners** — braille frames on each running agent and on the `ctx` label; `✓` / `✗` when done / errored.
+- **Live clocks** — per-agent elapsed time ticks while running.
+- **Swimlanes** — in lanes mode each running bar's head pulses on a shared time axis.
+- **Context bar** — tweens to new readings over ~400 ms and shifts colour by threshold.
+- **Flash & pulse** — new permission requests flash for ~1.5 s; pending ones pulse.
+- **Fan-out** — a new subagent plays a short `· → ◦ → ●` launch before its spinner.
+
+Set `"animations": false` to freeze all of them; clocks keep updating.
+</details>
 
 ## Development
 
 ```bash
 bun install
 bun run typecheck   # tsc --noEmit (strict)
-bun run build       # rebuild after editing src/*
+bun run test        # bun test
+bun run build       # rebuild dist/ after editing src/
 ```
 
-The TUI hot-reloads file plugins; if not, restart OpenCode.
+OpenCode hot-reloads file plugins; if it does not, restart it.
 
-Layout:
+| File | Role |
+|---|---|
+| `src/index.tsx` | plugin entry: sidebar slot, five plugin routes, keymap layers |
+| `src/state.ts` | reactive store: shared ticker, run tracking, permission and git events, navigation, prefs |
+| `src/sidebar.tsx` | the compact sidebar |
+| `src/fullview.tsx` | the full view (Agents / Activity tabs) |
+| `src/panels.tsx` | Agents-tab panels: charts, tokens by agent, files, stats, errors |
+| `src/diffview.tsx` · `src/gitview.tsx` · `src/usageview.tsx` · `src/help.tsx` | the other pages |
+| `src/git.ts` | git parsers (pure, tested) and spawn wrappers |
+| `src/metrics.ts` · `src/usage.ts` · `src/format.ts` · `src/num.ts` | pure helpers (tested) |
+| `src/config.ts` | plugin options with defaults |
+| `script/build.mjs` | Solid transform build |
 
-- `src/index.tsx` — plugin entry (`Plugin.define`, sidebar slot, plugin route, keymap layer)
-- `src/state.ts` — reactive store: shared ticker, run tracking, permission events, full-view navigation
-- `src/sidebar.tsx` — the compact sidebar (header, ctx, needs approval, agents, footer)
-- `src/fullview.tsx` — the full-screen view (Overview / Agents / Activity tabs)
-- `src/diffview.tsx` — the diff page (tree + patch, edits / git / log)
-- `src/gitview.tsx` — the git log page
-- `src/usageview.tsx` — the usage page
-- `src/shared.ts` — shared live-state hooks (agent state, ctx stats, permissions, activity)
-- `src/anim.ts` — frame helpers: spinner, rail packets, lane flow, launch, tween, colour mix
-- `src/format.ts` — formatting + secret masking helpers
-- `script/build.mjs` — Solid transform build (bakes host runtime-module ids)
+Issues and pull requests are welcome.
 
 ## License
 
-MIT
-
----
-
-## Tiếng Việt
-
-Dashboard trực tiếp trong OpenCode TUI — bản clone của claude-flightdeck cho
-OpenCode **v2**. Hai màn hình: sidebar gọn (slot `sidebar.content`) và màn
-hình đầy đủ (plugin route). Chỉ quan sát, không chặn/sửa event, không gọi
-mạng, không ghi file, không lưu state giữa các phiên.
-
-**Mở full view:** gõ `/opendeck` (hoặc command palette), hoặc click `⤢ open`
-trong sidebar (không gán phím tắt mặc định — tự gán qua command id
-`opendeck.open`). `q`/`esc` quay lại session. Ba tab: `1` Overview (ctx, thống
-kê phiên, biểu đồ, lỗi, quyền đang chờ), `2` Agents (cards hoặc lanes qua `t`,
-`j/k` chọn, `enter` mở, token từng agent, tool), `3` Activity (timeline đầy đủ
-+ lịch sử permission gate). `f` mở trang diff (tab `1` edits / `2` git / `3`
-log — git log chỉ vào được từ đây), `u` usage, `?` help.
-
-**Sidebar hiển thị:**
-
-- **Header** — `▾ opendeck · model`, click để thu gọn.
-- **Context** — một dòng `ctx ▰▱ NN% · in X · out Y` (accent <70%, warning
-  70–85%, error >85%; spinner khi session đang chạy).
-- **needs approval** — chỉ request đang chờ; không có thì ẩn.
-- **Agents** — agent đang hoạt động 2 dòng mỗi agent (spinner, tên, model,
-  tool hiện tại, đồng hồ); agent xong thu gọn một dòng `▸ Done 5 ✓4 ✗1`, click
-  để mở rộng.
-- **⤺ back to Opendeck** — chỉ hiện khi cần quay lại full view.
-- **Footer** — `⤢ open · /opendeck`.
-
-**Cài đặt (bản local):** thêm đường dẫn tuyệt đối của thư mục này vào mảng
-`plugins` trong `~/.config/opencode/cli.json` (xem ví dụ JSON ở trên), rồi
-chạy `bun install && bun run build` và khởi động lại OpenCode.
+[MIT](LICENSE)
