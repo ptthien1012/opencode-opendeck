@@ -1,9 +1,10 @@
 import type { SessionMessageAssistantTool } from "@opencode/client"
 import { executeTarget } from "./metrics.js"
+import { fixed1 } from "./num.js"
 
 /** 123 -> "123", 45_000 -> "45k", 1_200_000 -> "1m". */
 export function formatTokens(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, "")}m`
+  if (value >= 1_000_000) return `${fixed1(value / 1_000_000)}m`
   if (value >= 1_000) return `${Math.round(value / 1_000)}k`
   return `${value}`
 }
@@ -16,13 +17,6 @@ export function formatElapsed(ms: number): string {
   const seconds = total % 60
   if (hours > 0) return `${hours}h${String(minutes).padStart(2, "0")}m`
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
-}
-
-/** Compact ASCII/unicode context bar, e.g. "██████░░░░". */
-export function formatBar(ratio: number, width = 10): string {
-  const clamped = Math.max(0, Math.min(1, ratio))
-  const filled = Math.round(clamped * width)
-  return "█".repeat(filled) + "░".repeat(width - filled)
 }
 
 export function truncate(text: string, max: number): string {

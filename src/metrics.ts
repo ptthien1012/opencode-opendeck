@@ -3,6 +3,7 @@
 // so it is unit-tested with `bun test` (test/metrics.test.ts).
 
 import type { FileDiffInfo, SessionMessageAssistant, SessionMessageAssistantTool, SessionMessageInfo } from "@opencode/client"
+import { clamp01 } from "./num.js"
 
 /** --- Charts ------------------------------------------------------------- */
 
@@ -30,7 +31,7 @@ export function sparkline(values: readonly number[], width: number, max?: number
 export function hbar(value: number, max: number, width: number): string {
   const cells = Math.max(0, Math.floor(width))
   if (cells === 0) return ""
-  const ratio = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0
+  const ratio = max > 0 ? clamp01(value / max) : 0
   let filled = Math.round(ratio * cells)
   if (value > 0 && filled === 0) filled = 1
   return "█".repeat(filled) + "░".repeat(cells - filled)
@@ -246,15 +247,6 @@ export function recentErrors(
 }
 
 /** --- Files -------------------------------------------------------------- */
-
-/** Files changed by the given assistant messages (snapshot.files), unique, first-seen order. */
-export function filesTouched(messages: readonly SessionMessageAssistant[]): string[] {
-  const seen = new Set<string>()
-  for (const message of messages) {
-    for (const file of message.snapshot?.files ?? []) seen.add(file)
-  }
-  return [...seen]
-}
 
 /**
  * Files changed by edit-family tool calls, as FileDiffInfo rows merged per

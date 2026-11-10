@@ -3,6 +3,7 @@
 // unit-tested in test/usage.test.ts.
 
 import type { SessionStatsActivity, SessionStatsModelUsage, TokenUsageInfo } from "@opencode/client"
+import { fixed1 } from "./num.js"
 
 export type UsageRange = "30d" | "90d" | "1y"
 
@@ -115,19 +116,6 @@ export function tokenTotal(tokens: TokenUsageInfo): number {
   return tokens.input + tokens.output + tokens.reasoning + (tokens.cache?.read ?? 0) + (tokens.cache?.write ?? 0)
 }
 
-/** Shares of the total (0..1) per token kind. */
-export function tokenShares(tokens: TokenUsageInfo): { input: number; cacheRead: number; cacheWrite: number; output: number; reasoning: number } {
-  const total = tokenTotal(tokens)
-  const share = (n: number) => (total > 0 ? n / total : 0)
-  return {
-    input: share(tokens.input),
-    cacheRead: share(tokens.cache?.read ?? 0),
-    cacheWrite: share(tokens.cache?.write ?? 0),
-    output: share(tokens.output),
-    reasoning: share(tokens.reasoning),
-  }
-}
-
 /** Cache read / (input + cache read + cache write), 0..1. */
 export function cacheHit(tokens: TokenUsageInfo): number {
   const read = tokens.cache?.read ?? 0
@@ -175,7 +163,7 @@ export function modelRows(models: readonly SessionStatsModelUsage[]): ModelRow[]
 /** 1234 → "1.2k", 944_600_000 → "944.6M", 1_200_000_000 → "1.2B". */
 export function compact(value: number): string {
   const abs = Math.abs(value)
-  const fmt = (n: number, unit: string) => `${n.toFixed(1).replace(/\.0$/, "")}${unit}`
+  const fmt = (n: number, unit: string) => `${fixed1(n)}${unit}`
   if (abs >= 1e9) return fmt(value / 1e9, "B")
   if (abs >= 1e6) return fmt(value / 1e6, "M")
   if (abs >= 1e3) return fmt(value / 1e3, "k")

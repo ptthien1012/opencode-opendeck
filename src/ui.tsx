@@ -12,6 +12,7 @@ import { createMemo, For, Index, Show } from "solid-js"
 import type { JSX } from "solid-js"
 import { treeRail } from "./anim.js"
 import { fitHints, truncate } from "./format.js"
+import { clamp01 } from "./num.js"
 
 /**
  * Stable per-agent colour: sum of the id's char codes modulo the theme's
@@ -100,7 +101,7 @@ export function Gauge(props: { ratio: number | undefined; cells: number }) {
   const cells = createMemo(() => Math.max(0, Math.floor(props.cells)))
   const filled = createMemo(() => {
     if (props.ratio === undefined) return 0
-    return Math.round(Math.max(0, Math.min(1, props.ratio)) * cells())
+    return Math.round(clamp01(props.ratio) * cells())
   })
   return (
     // fixed width: an empty "" text node can still take a layout cell, so
@@ -130,7 +131,7 @@ export function bar(
   maxCells = 20,
 ): JSX.Element {
   const cells = Math.min(maxCells, Math.max(0, Math.floor(width)))
-  const ratio = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0
+  const ratio = max > 0 ? clamp01(value / max) : 0
   let filled = Math.round(ratio * cells)
   if (value > 0 && filled === 0 && cells > 0) filled = 1
   return (

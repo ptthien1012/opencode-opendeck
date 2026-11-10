@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { cmdVerb, fitHints, shortPath } from "../src/format.ts"
 
-const CWD = "/Volumes/MyDrive/git/work/zeus_mobile"
-const HOME = "/Users/thien"
+const CWD = "/home/dev/work/my-app"
+const HOME = "/home/dev"
 
 describe("shortPath", () => {
   test("cwd prefix collapses to ./", () => {

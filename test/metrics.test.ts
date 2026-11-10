@@ -3,7 +3,6 @@ import {
   cacheShare,
   diffFromTools,
   executeTarget,
-  filesTouched,
   formatDuration,
   formatRate,
   hbar,
@@ -175,17 +174,6 @@ describe("tool calls", () => {
       { sessionID: "a", name: "shell", message: "boom at x", created: 1, partID: "p1" },
     ])
     expect(recentErrors(entries, 1).length).toBe(1)
-  })
-})
-
-describe("filesTouched", () => {
-  test("unique files in first-seen order", () => {
-    const messages = [
-      assistant({ snapshot: { files: ["a.ts", "b.ts"] } }),
-      assistant({}),
-      assistant({ snapshot: { files: ["b.ts", "c.ts"] } }),
-    ]
-    expect(filesTouched(messages)).toEqual(["a.ts", "b.ts", "c.ts"])
   })
 })
 

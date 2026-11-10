@@ -9,7 +9,6 @@ import {
   heatmapGrid,
   level,
   modelRows,
-  tokenShares,
   tokenTotal,
 } from "../src/usage.ts"
 
@@ -89,7 +88,6 @@ describe("tokens", () => {
   const t = tokens(100, 50, 800, 40, 10)
   test("total, shares and cache hit", () => {
     expect(tokenTotal(t)).toBe(1000)
-    expect(tokenShares(t).cacheRead).toBeCloseTo(0.8)
     expect(cacheHit(t)).toBeCloseTo(800 / 940)
     expect(cacheHit(tokens(0, 5))).toBe(0)
   })

@@ -7,6 +7,7 @@
 // fan-out launches, `━` frozen bars for finished work.
 
 import { RGBA } from "@opentui/core"
+import { clamp01 } from "./num.js"
 
 /** Frame-clock resolution: one shared interval in state.ts drives all frames. */
 export const TICK_MS = 120
@@ -34,75 +35,13 @@ export const FLASH_MS = 1500
 export const TWEEN_MS = 400
 
 export function easeOut(t: number): number {
-  const clamped = Math.max(0, Math.min(1, t))
+  const clamped = clamp01(t)
   return 1 - Math.pow(1 - clamped, 3)
-}
-
-/**
- * Swimlane flow: a dim `─` line with one lit packet (head `●`, trail `•`)
- * marching left→right, one cell per tick — the inline-lane version of
- * claude-flightdeck's animated rail connectors. Returns coalesced runs of
- * same-colour cells so a 12-cell lane renders as ~3 text nodes per frame.
- */
-export function flowRuns(phase: number, width: number): { text: string; lit: boolean }[] {
-  const w = Math.max(1, Math.floor(width))
-  // Sweep 2 cells past the right edge so the packet fully exits before re-entry.
-  const head = ((phase % (w + 2)) + (w + 2)) % (w + 2)
-  const runs: { text: string; lit: boolean }[] = []
-  for (let i = 0; i < w; i++) {
-    const lit = i === head || i === head - 1
-    const glyph = i === head ? "●" : i === head - 1 ? "•" : "─"
-    const last = runs[runs.length - 1]
-    if (last && last.lit === lit) last.text += glyph
-    else runs.push({ text: glyph, lit })
-  }
-  return runs
-}
-
-/**
- * Connector rail (claude-flightdeck's card-grid rails): a dim `─` line with
- * `┬` (fan-out) or `┴` (merge) marks at the given cells. While `active`, lit
- * packets (head `●`, trail `•`, two per 24 cells) march left→right, one cell
- * per tick. Returns coalesced runs of same-kind cells so a long rail renders
- * as a handful of text nodes per frame.
- */
-export function railRuns(
-  phase: number,
-  width: number,
-  marks: readonly number[],
-  merge: boolean,
-  active: boolean,
-): { text: string; lit: boolean }[] {
-  const w = Math.max(1, Math.floor(width))
-  const markSet = new Set<number>()
-  for (const mark of marks) {
-    const cell = Math.floor(mark)
-    if (cell >= 0 && cell < w) markSet.add(cell)
-  }
-  const lit = new Map<number, string>()
-  if (active) {
-    // Sweep 24 cells past the right edge so packets fully exit before re-entry.
-    for (let base = 0; base < w + 24; base += 24) {
-      const head = (((base + phase) % (w + 24)) + w + 24) % (w + 24)
-      if (head < w) lit.set(head, "●")
-      const trail = head - 1
-      if (trail >= 0 && trail < w && !lit.has(trail)) lit.set(trail, "•")
-    }
-  }
-  const runs: { text: string; lit: boolean }[] = []
-  for (let i = 0; i < w; i++) {
-    const litGlyph = lit.get(i)
-    const glyph = litGlyph ?? (markSet.has(i) ? (merge ? "┴" : "┬") : "─")
-    const last = runs[runs.length - 1]
-    if (last && last.lit === (litGlyph !== undefined)) last.text += glyph
-    else runs.push({ text: glyph, lit: litGlyph !== undefined })
-  }
-  return runs
 }
 
 /** Linear RGB blend between two theme colors (t=0 → a, t=1 → b). */
 export function mixColor(a: RGBA, b: RGBA, t: number): RGBA {
-  const k = Math.max(0, Math.min(1, t))
+  const k = clamp01(t)
   return RGBA.fromValues(a.r + (b.r - a.r) * k, a.g + (b.g - a.g) * k, a.b + (b.b - a.b) * k, 1)
 }
 
@@ -113,7 +52,7 @@ export function mixColor(a: RGBA, b: RGBA, t: number): RGBA {
  */
 export function pulseLevel(tick: number, period = 16): number {
   const p = period > 0 ? period : 1
-  return Math.max(0, Math.min(1, (1 + Math.sin((tick / p) * 2 * Math.PI)) / 2))
+  return clamp01((1 + Math.sin((tick / p) * 2 * Math.PI)) / 2)
 }
 
 /**
@@ -121,7 +60,7 @@ export function pulseLevel(tick: number, period = 16): number {
  * dim `│` ancestors above the child, `├──`/`└──` at the join row, and blank
  * (last) or `│` (still has siblings below) rows after it. While `active`, a
  * lit packet (head `●`, trail `•`) climbs one row per tick, wrapping at the
- * join row — the vertical sibling of `flowRuns`. The join corner glyph is
+ * join row. The join corner glyph is
  * preserved: when the head lands on the join row it sits in cell 1
  * (`├●─`, `└●─`) instead of replacing the corner.
  */
