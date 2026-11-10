@@ -95,15 +95,6 @@ export default Plugin.define({
           run: () => deck.openDiff(),
         },
         {
-          id: "opendeck.git",
-          title: "Opendeck: git log",
-          description: "Open the git commit graph of the session's directory",
-          group: "Opendeck",
-          bind: "l",
-          enabled: () => deck.isFullRoute(),
-          run: () => deck.openGit(),
-        },
-        {
           id: "opendeck.usage",
           title: "Opendeck: usage",
           description: "Token, cache, model and tool usage over 30d / 90d / 1y",
@@ -138,7 +129,7 @@ export default Plugin.define({
         {
           id: "opendeck.tab.agents",
           title: "Opendeck: tab Agents",
-          description: "Agent tree, tokens per agent, tools and permissions",
+          description: "Agent tree, tokens per agent and tools",
           group: "Opendeck",
           bind: "2",
           enabled: () => deck.isFullRoute(),
@@ -147,20 +138,11 @@ export default Plugin.define({
         {
           id: "opendeck.tab.activity",
           title: "Opendeck: tab Activity",
-          description: "Full-height tool-call timeline",
+          description: "Full-height tool-call timeline and permissions",
           group: "Opendeck",
           bind: "3",
           enabled: () => deck.isFullRoute(),
           run: () => deck.setFullTab("activity"),
-        },
-        {
-          id: "opendeck.tab.files",
-          title: "Opendeck: tab Files",
-          description: "Files changed in this session",
-          group: "Opendeck",
-          bind: "4",
-          enabled: () => deck.isFullRoute(),
-          run: () => deck.setFullTab("files"),
         },
         // Agents tab: j/k move the keyboard selection, enter opens it. The
         // commands stay inert on the other tabs (each tab has its own page
@@ -263,36 +245,15 @@ export default Plugin.define({
           run: () => deck.diffKey("open"),
         },
         {
-          bind: "right",
-          enabled: () => deck.diffOpen(),
-          run: () => deck.diffKey("open"),
-        },
-        {
           bind: "h",
           enabled: () => deck.diffOpen(),
           run: () => deck.diffKey("close-parent"),
-        },
-        {
-          bind: "left",
-          enabled: () => deck.diffOpen(),
-          run: () => deck.diffKey("close-parent"),
-        },
-        // Tree: open under cursor; patch: page down.
-        {
-          bind: "space",
-          enabled: () => deck.diffOpen(),
-          run: () => deck.diffKey("space"),
         },
         // Page scrolling uses the view-published visible row count.
         {
           bind: "pagedown",
           enabled: () => deck.diffOpen(),
           run: () => deck.diffKey("page-down"),
-        },
-        {
-          bind: "b",
-          enabled: () => deck.diffOpen(),
-          run: () => deck.diffKey("page-up"),
         },
         {
           bind: "pageup",
@@ -447,9 +408,7 @@ export default Plugin.define({
         { bind: "down", enabled: gitOn, run: () => deck.gitMove(1) },
         { bind: "k", enabled: gitOn, run: () => deck.gitMove(-1) },
         { bind: "up", enabled: gitOn, run: () => deck.gitMove(-1) },
-        { bind: "space", enabled: gitOn, run: () => deck.gitMove(page()) },
         { bind: "pagedown", enabled: gitOn, run: () => deck.gitMove(page()) },
-        { bind: "b", enabled: gitOn, run: () => deck.gitMove(-page()) },
         { bind: "pageup", enabled: gitOn, run: () => deck.gitMove(-page()) },
         { bind: "g", enabled: gitOn, run: () => deck.gitSelect(0) },
         { bind: "shift+g", enabled: gitOn, run: () => deck.gitSelect(1_000_000) },

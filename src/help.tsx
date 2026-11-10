@@ -19,42 +19,40 @@ const SYM_W = 8
 // Left column: one row per page with its keys.
 const NAV_ROWS: [string, string][] = [
   ["/opendeck", "open the dashboard"],
-  ["1-4", "dashboard tabs"],
+  ["1-3", "dashboard tabs"],
   ["t", "cards/lanes"],
   ["j/k", "select agent (agents tab)"],
   ["enter", "open selected agent"],
-  ["f", "files/diff"],
-  ["l", "git log"],
+  ["f", "changes · diff"],
   ["u", "usage"],
   ["?", "help"],
   ["q/esc", "back"],
 ]
 
 const DIFF_ROWS: [string, string][] = [
-  ["j/k", "file"],
-  ["enter", "open"],
-  ["h", "collapse parent"],
-  ["tab", "pane"],
+  ["j/k", "move"],
+  ["enter/l", "open"],
+  ["h", "close dir"],
+  ["tab", "tree/patch"],
   ["1/2/3", "edits/git/log"],
   ["s", "split/unified"],
-  ["space/b", "page"],
+  ["pgup/pgdn", "page"],
+  ["ctrl+d/u", "half page"],
   ["n/p", "hunk"],
   ["g/G", "top/bottom"],
   ["r", "refresh git"],
-  ["ctrl+d/u", "half page"],
-  ["l / →", "open"],
-  ["h / ←", "collapse"],
-  ["q", "close"],
-  ["esc", "back"],
+  ["?", "help"],
+  ["q/esc", "back"],
 ]
 
 const GIT_ROWS: [string, string][] = [
-  ["j/k", "select"],
-  ["enter", "files"],
-  ["space/b", "page"],
-  ["g/G", "top/bottom"],
+  ["j/k", "move"],
+  ["pgup/pgdn", "page"],
+  ["g/G", "first/last"],
+  ["enter", "open commit"],
   ["r", "reload"],
-  ["esc", "back"],
+  ["?", "help"],
+  ["q/esc", "back"],
 ]
 
 const USAGE_ROWS: [string, string][] = [

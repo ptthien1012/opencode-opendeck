@@ -1,14 +1,6 @@
 import type { SessionMessageAssistantTool } from "@opencode/client"
 import { executeTarget } from "./metrics.js"
 
-const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" })
-
-/** $1.23 for normal values, $0.0042 for tiny ones so cost is never invisible. */
-export function formatMoney(value: number): string {
-  if (value > 0 && value < 0.01) return `$${value.toFixed(4)}`
-  return usd.format(value)
-}
-
 /** 123 -> "123", 45_000 -> "45k", 1_200_000 -> "1m". */
 export function formatTokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, "")}m`

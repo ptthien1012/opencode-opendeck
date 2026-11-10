@@ -230,7 +230,7 @@ export function GitView(props: { deck: Deck; sessionID?: string }) {
         items={[
           ["j/k", "move"],
           ["enter", "files"],
-          ["space/b", "page"],
+          ["pgup/pgdn", "page"],
           ["r", "reload"],
           ["esc", "back"],
         ]}

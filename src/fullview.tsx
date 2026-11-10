@@ -2,13 +2,12 @@
 // Full-screen Opendeck view (Part 2), registered as the plugin route
 // "opendeck" — the widest surface the v2 TUI API offers (a whole page).
 // Borderless Grok-CLI style (see ui.tsx): a `◆ opendeck` header with a live
-// ctx gauge, a clickable tab row (1 Overview · 2 Agents · 3 Activity ·
-// 4 Files), then one full-width stack per tab — overview: main, stats,
-// charts, errors (plus the permissions gate while requests are pending);
-// agents: the orchestrator tree or swimlanes, agent tokens, tools, gate;
-// activity: the tool timeline sized to the terminal height; files: the
-// changed-files panel. `t` toggles cards ⇄ lanes; key hints sit at the
-// bottom.
+// ctx gauge, a clickable tab row (1 Overview · 2 Agents · 3 Activity),
+// then one full-width stack per tab — overview: main, stats, charts, errors
+// (plus the permissions gate while requests are pending); agents: the
+// orchestrator tree or swimlanes, agent tokens, tools; activity: the tool
+// timeline sized to the terminal height, then the permissions gate.
+// `t` toggles cards ⇄ lanes; key hints sit at the bottom.
 //
 // Everything animates off the deck's single shared 120ms ticker — this file
 // creates no timers of its own.
@@ -21,7 +20,7 @@ import { mixColor, pulseLevel, spinner } from "./anim.js"
 import { formatClock, formatElapsed, formatTokens, maskSecrets, shortModel, toolSummary } from "./format.js"
 import type { Deck, FullTab } from "./state.js"
 import { cacheShare, formatDuration, formatRate, hbar, toolState } from "./metrics.js"
-import { AgentTokensPanel, ChartsPanel, ErrorsPanel, FilesPanel, StatsPanel } from "./panels.js"
+import { AgentTokensPanel, ChartsPanel, ErrorsPanel, StatsPanel } from "./panels.js"
 import { agentLabel, agentName, assistantMessages, collectToolParts, collapseRows, lastActive, sessionTokens, toolCallCounts, useAgentState, useContextStats, usePermRecords } from "./shared.js"
 import type { MergedPerm } from "./shared.js"
 import { AgentCard, agentColor, Gauge, glyph, KeyHints, Marker, RailSpacer, Rule, Section, TabBar, TreeRail } from "./ui.js"
@@ -39,12 +38,11 @@ const rateText = (rate: { last?: number; avg?: number }) =>
     ? "– tok/s"
     : `${formatRate(rate.last ?? rate.avg)} tok/s · avg ${formatRate(rate.avg)}`
 
-/** Header tab row in key order (1–4); the TabBar prefixes each key number. */
+/** Header tab row in key order (1–3); the TabBar prefixes each key number. */
 const FULL_TABS: readonly { id: FullTab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "agents", label: "Agents" },
   { id: "activity", label: "Activity" },
-  { id: "files", label: "Files" },
 ]
 
 /** --- Panels -------------------------------------------------------------- */
@@ -905,9 +903,9 @@ export function FullView(props: { deck: Deck; sessionID?: string }) {
   // Footer hints: tabs first, then agents-tab selection, then the global
   // pages. `wrap` keeps every hint whole and wraps the row on narrow terms.
   const hintItems = createMemo<readonly [string, string][]>(() => {
-    const items: [string, string][] = [["1-4", "tabs"]]
+    const items: [string, string][] = [["1-3", "tabs"]]
     if (props.deck.fullTab() === "agents") items.push(["j/k", "select"], ["enter", "open"], ["t", "cards/lanes"])
-    items.push(["f", "diff"], ["l", "git"], ["u", "usage"], ["?", "help"], ["q", "back"])
+    items.push(["f", "changes"], ["u", "usage"], ["?", "help"], ["q", "back"])
     return items
   })
 
@@ -933,14 +931,14 @@ export function FullView(props: { deck: Deck; sessionID?: string }) {
                   <AgentsArea deck={props.deck} sessionID={id} w={W()} h={H()} />
                   <AgentTokensPanel deck={props.deck} sessionID={id} w={W()} />
                   <ToolsPanel deck={props.deck} sessionID={id} w={W()} />
-                  <GatePanel deck={props.deck} sessionID={id} w={W()} />
                 </Match>
-                {/* Timeline rows wrap to two terminal rows, so halve the height budget. */}
+                {/* Timeline rows wrap to two terminal rows, so halve the height
+                    budget; the permissions gate sits under it. */}
                 <Match when={props.deck.fullTab() === "activity"}>
-                  <Timeline deck={props.deck} sessionID={id} w={W()} rows={Math.max(4, Math.floor((H() - 12) / 2))} />
-                </Match>
-                <Match when={props.deck.fullTab() === "files"}>
-                  <FilesPanel deck={props.deck} sessionID={id} w={W()} />
+                  <>
+                    <Timeline deck={props.deck} sessionID={id} w={W()} rows={Math.max(4, Math.floor((H() - 16) / 2))} />
+                    <GatePanel deck={props.deck} sessionID={id} w={W()} />
+                  </>
                 </Match>
                 <Match when={props.deck.fullTab() === "overview"}>
                   <MainPanel deck={props.deck} sessionID={id} w={W()} />

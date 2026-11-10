@@ -38,8 +38,8 @@ export type DiffKey =
  * resolve the row under the cursor without knowing the tree itself. */
 export type DiffRowInfo = { path: string; dir: boolean; fileIndex: number }
 
-/** Full-view dashboard tabs (the 1–4 keys / clickable tab row). */
-export type FullTab = "overview" | "agents" | "activity" | "files"
+/** Full-view dashboard tabs (the 1–3 keys / clickable tab row). */
+export type FullTab = "overview" | "agents" | "activity"
 
 export type PermRecord = {
   id: string
@@ -77,7 +77,12 @@ export function createDeck(context: Context) {
     const [lastRoot, setLastRoot] = createSignal<string | undefined>(undefined)
     // Active full-view dashboard tab. Signal for reactivity; mirrored into
     // the memory store so the last tab survives hot reloads (like lanes).
-    const [fullTab, setFullTabRaw] = createSignal<FullTab>(ui.tab ?? "overview")
+    // The store outlives the type: a tab removed in a later version (e.g.
+    // "files") can still be in memory, so validate before using it.
+    const savedTab: string | undefined = ui.tab
+    const [fullTab, setFullTabRaw] = createSignal<FullTab>(
+      savedTab === "agents" || savedTab === "activity" ? savedTab : "overview",
+    )
     // Agents tab keyboard selection: the rows' session ids in display order
     // (published by the view) and the selected id. The view renders the
     // selection later; movement lives here so the keymap stays dumb.
@@ -1015,14 +1020,6 @@ export function createDeck(context: Context) {
       openAgentSel() {
         const selected = agentSel()
         if (selected) deck.diveInto(selected)
-      },
-      /** Total USD cost of the session family (current session + subagents). */
-      totalCost(sessionID: string) {
-        let total = 0
-        for (const id of familyIds(sessionID)) {
-          total += context.data.session.get(id)?.cost ?? 0
-        }
-        return total
       },
       familyIds,
       hydrateMessages,

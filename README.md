@@ -13,38 +13,39 @@ English | [Tiếng Việt](#tiếng-việt)
 
 ## Full view
 
-Open it with `/opendeck` (slash command or command palette) or the
-`⤢ open Opendeck` link in the sidebar. `q` or `esc` returns to the session;
-`t` (or clicking the header) toggles the agents area between the card grid and
-swimlanes. There is no default keybind (`ctrl+g` belongs to the host's
-`session.first`); bind your own via the `opendeck.open` command id in your
-keybinds config. The `esc`/`q`/`t` keys live in a dedicated keymap mode that
-only exists while the full view is the current route, so they never fire over
-the prompt or a dialog on top.
+Open it with `/opendeck` (slash command or command palette) or the `⤢ open`
+link in the sidebar. `q` or `esc` returns to the session. Three tabs
+(`1`/`2`/`3`): **Overview** (ctx, session stats, charts, errors, pending
+permissions), **Agents** (cards or lanes via `t`, `j/k` select, `enter` open,
+tokens per agent, tools), **Activity** (full-height timeline plus permission
+gate history). `f` opens the diff page, `u` usage, `?` help. There is no default
+keybind (`ctrl+g` belongs to the host's `session.first`); bind your own via the
+`opendeck.open` command id in your keybinds config. The full view's keys live in
+a dedicated keymap mode that only exists while it is the current route, so they
+never fire over the prompt or a dialog on top.
 
-- **Layout** — two columns at ≥110 terminal cols (left: main context/cost
-  panel, permission gate, activity timeline; right: agents), stacked below.
+- **Layout** — two columns at ≥110 terminal cols (left: context and session
+  stats, pending permissions; right: agents), stacked below.
 - **Agents** — a card grid between connector rails (`┬` fan-out above, `┴`
   merge below) with packets marching while anything runs; or swimlanes on one
   shared time axis, each bar the agent's lifetime with a pulsing live head.
-- **Permission gate** — one cell per check (allowed `■`, pending `■` pulsing,
-  denied `✗`; dimmed when made inside a subagent) plus totals and pending rows.
+- **Diff page** (`f`) — file tree + patch, tabs `1` edits / `2` git / `3` log
+  (the git log is reachable only from here). `j/k` move, `enter`/`l` open,
+  `h` close dir, `tab` tree⇄patch, `pgup/pgdn` and `ctrl+d/u` scroll, `n/p`
+  hunk, `g/G` top/bottom, `s` split/unified, `r` refresh, `?` help, `q` back.
 
 ## What the sidebar shows
 
-- **Context & cost** — context tokens vs the model's context limit (bar + %),
-  total session cost including subagents, current model.
-- **Active** — only agents running, waiting on a permission reply, or finished
-  within the last ~30s (pending first, then running by start time). Per agent:
-  spinner, name, short model, current tool + arg (secret-masked), elapsed
-  clock, ctx %, cost. Click a card to jump into that child session.
-- **Done** — inactive agents collapsed to one header line (`▸ Done 5  ✓4 ✗1`,
-  failed count always visible); click to expand one-line rows.
-- **Activity** — tool calls from the main session + active agents only;
-  consecutive identical rows collapse to `×n`; max 6 rows.
-- **Permissions** — pending requests pulse, plus a short verdict history.
-- Sections with nothing to say are hidden; when nothing is happening at all
-  the widget is just the context line and a dim `· idle` hint.
+- **Header** — `▾ opendeck · model`; click to collapse.
+- **Context** — one line: `ctx ▰▱ NN% · in X · out Y` (accent <70%, warning
+  70–85%, error >85%; spinner while the session runs).
+- **needs approval** — pending permission requests only; hidden when none.
+- **Agents** — each active agent on two lines (spinner, name, short model,
+  current tool + arg (secret-masked), elapsed clock). Inactive agents collapse
+  to one header line (`▸ Done 5 ✓4 ✗1`); click to expand. Click an agent to
+  jump into that child session.
+- **⤺ back to Opendeck** — only while a return to the full view is pending.
+- **Footer** — `⤢ open · /opendeck`.
 
 All rows are measured against the real slot width, truncated with an ellipsis,
 and never wrap.
@@ -104,8 +105,11 @@ Layout:
 
 - `src/index.tsx` — plugin entry (`Plugin.define`, sidebar slot, plugin route, keymap layer)
 - `src/state.ts` — reactive store: shared ticker, run tracking, permission events, full-view navigation
-- `src/sidebar.tsx` — the compact sidebar (Active / Done / Activity / Permissions)
-- `src/fullview.tsx` — the full-screen view (panels, card grid + rails, swimlanes)
+- `src/sidebar.tsx` — the compact sidebar (header, ctx, needs approval, agents, footer)
+- `src/fullview.tsx` — the full-screen view (Overview / Agents / Activity tabs)
+- `src/diffview.tsx` — the diff page (tree + patch, edits / git / log)
+- `src/gitview.tsx` — the git log page
+- `src/usageview.tsx` — the usage page
 - `src/shared.ts` — shared live-state hooks (agent state, ctx stats, permissions, activity)
 - `src/anim.ts` — frame helpers: spinner, rail packets, lane flow, launch, tween, colour mix
 - `src/format.ts` — formatting + secret masking helpers
@@ -124,23 +128,25 @@ OpenCode **v2**. Hai màn hình: sidebar gọn (slot `sidebar.content`) và màn
 hình đầy đủ (plugin route). Chỉ quan sát, không chặn/sửa event, không gọi
 mạng, không ghi file, không lưu state giữa các phiên.
 
-**Mở full view:** gõ `/opendeck` (hoặc command palette), hoặc click
-`⤢ open Opendeck` trong sidebar (không gán phím tắt mặc định — tự gán qua
-command id `opendeck.open`). `q`/`esc` để quay lại session, `t`
-để đổi agents giữa lưới thẻ (cards) và swimlanes.
+**Mở full view:** gõ `/opendeck` (hoặc command palette), hoặc click `⤢ open`
+trong sidebar (không gán phím tắt mặc định — tự gán qua command id
+`opendeck.open`). `q`/`esc` quay lại session. Ba tab: `1` Overview (ctx, thống
+kê phiên, biểu đồ, lỗi, quyền đang chờ), `2` Agents (cards hoặc lanes qua `t`,
+`j/k` chọn, `enter` mở, token từng agent, tool), `3` Activity (timeline đầy đủ
++ lịch sử permission gate). `f` mở trang diff (tab `1` edits / `2` git / `3`
+log — git log chỉ vào được từ đây), `u` usage, `?` help.
 
 **Sidebar hiển thị:**
 
-- **Context & cost** — token context so với giới hạn của model (thanh + %),
-  tổng chi phí phiên gồm cả các subagent, model hiện tại.
-- **Active** — chỉ agent đang chạy / chờ quyền / vừa xong trong ~30s: spinner,
-  tên, model, tool hiện tại, đồng hồ, ctx %, cost. Agent khác nằm trong mục
-  **Done** thu gọn một dòng (`▸ Done 5  ✓4 ✗1`), click để mở rộng.
-- **Activity** — tool call của session chính + agent đang chạy; dòng trùng
-  liên tiếp gom thành `×n`; tối đa 6 dòng.
-- **Permissions** — request đang chờ nhấp nháy, kèm lịch sử cho phép (`✓`) /
-  từ chối (`✗`). Mục nào trống thì ẩn hẳn; không có gì chạy thì chỉ còn dòng
-  context và gợi ý `· idle` mờ.
+- **Header** — `▾ opendeck · model`, click để thu gọn.
+- **Context** — một dòng `ctx ▰▱ NN% · in X · out Y` (accent <70%, warning
+  70–85%, error >85%; spinner khi session đang chạy).
+- **needs approval** — chỉ request đang chờ; không có thì ẩn.
+- **Agents** — agent đang hoạt động 2 dòng mỗi agent (spinner, tên, model,
+  tool hiện tại, đồng hồ); agent xong thu gọn một dòng `▸ Done 5 ✓4 ✗1`, click
+  để mở rộng.
+- **⤺ back to Opendeck** — chỉ hiện khi cần quay lại full view.
+- **Footer** — `⤢ open · /opendeck`.
 
 **Cài đặt (bản local):** thêm đường dẫn tuyệt đối của thư mục này vào mảng
 `plugins` trong `~/.config/opencode/cli.json` (xem ví dụ JSON ở trên), rồi

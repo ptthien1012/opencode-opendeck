@@ -5,10 +5,11 @@
 // toggles unified. Source switch: session "edits" (tool-call patches, or the
 // server snapshot as fallback) vs the "git" working tree (loadWorking).
 // Focus model: tab swaps tree ⇄ patch; j/k/up/down move the tree cursor or
-// scroll the patch, enter/space/l/right open, h/left collapses the parent
-// dir, space/b page, ctrl+d/u half page, n/p jump between hunks (click a
-// hunk header to jump to it), g/G top/bottom, 1/2 switch source, r refreshes
-// git, esc/q returns to the full view. Borderless Grok-CLI style (ui.tsx).
+// scroll the patch, enter/l opens, h collapses the parent dir, pgup/pgdn and
+// ctrl+d/u scroll, n/p jump between hunks (click a hunk header to jump to it),
+// g/G top/bottom, 1/2/3 switch source (edits / git / log — the log is only
+// reachable from here), r refreshes git, ? help, q/esc back to the full view.
+// Borderless Grok-CLI style (ui.tsx).
 // All view state lives on the deck so the keymap can drive it. No animations
 // — this file creates no timers and never touches the ticker.
 
@@ -572,7 +573,6 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
         ]
       : [
           ["j/k", "line"],
-          ["space/b", "page"],
           ["n/p", "hunk"],
           ["tab", "files"],
           ["esc", "back"],
