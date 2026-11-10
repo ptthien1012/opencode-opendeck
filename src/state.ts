@@ -1,6 +1,9 @@
 import type { usePlugin } from "@opencode/plugin/tui"
-import { createEffect, createRoot, createSignal, onCleanup } from "solid-js"
+import { createEffect, createResource, createRoot, createSignal, onCleanup } from "solid-js"
 import { FLASH_MS, LAUNCH_MS, TICK_MS, TWEEN_MS, easeOut, launchFrame } from "./anim.js"
+import { parseConfig } from "./config.js"
+import { loadBranch, loadWorkingSummary, runGitWrite } from "./git.js"
+import type { GitFileDiff, GitWriteAction, WorkingSummary } from "./git.js"
 
 type Context = ReturnType<typeof usePlugin>
 
@@ -16,14 +19,13 @@ export type DiffFocus = "tree" | "patch"
 
 /**
  * Focus-aware diff keys, routed by the deck's diffKey(): in "tree" focus
- * movement drives the cursor and open/close-parent work the tree; in "patch"
- * focus they scroll the patch (open/close-parent are no-ops there).
+ * movement drives the cursor and open/close-parent work the tree; page,
+ * half-page, hunk and top/bottom keys scroll the patch from both focuses.
  */
 export type DiffKey =
   | "up"
   | "down"
   | "open"
-  | "space"
   | "close-parent"
   | "page-up"
   | "page-down"
@@ -38,8 +40,18 @@ export type DiffKey =
  * resolve the row under the cursor without knowing the tree itself. */
 export type DiffRowInfo = { path: string; dir: boolean; fileIndex: number }
 
-/** Full-view dashboard tabs (the 1–3 keys / clickable tab row). */
-export type FullTab = "overview" | "agents" | "activity"
+/** Git working-tree file selected on the diff page's git tab, published by
+ * the view so the deck can run the write actions against it. */
+export type DiffGitTarget = {
+  cwd: string
+  file: string
+  status: GitFileDiff["status"]
+  staged?: boolean
+  untracked?: boolean
+}
+
+/** Full-view dashboard tabs (the 1–2 keys / clickable tab row). */
+export type FullTab = "agents" | "activity"
 
 export type PermRecord = {
   id: string
@@ -56,17 +68,28 @@ const PERM_HISTORY_LIMIT = 50
 
 export function createDeck(context: Context) {
   return createRoot((dispose) => {
-    // Ephemeral UI prefs: survive hot reloads, gone when the TUI exits.
-    // (storage.store would persist to disk — this widget is read-only and stateless by design.)
+    // Plugin options from cli.json `plugins[].options`; parseConfig is total,
+    // so a missing or malformed entry just yields the defaults.
+    const config = parseConfig(context.options)
+    // UI prefs: persisted through the host's plugin storage, so they survive a
+    // TUI restart and stay synced across running instances. Nothing about the
+    // sessions themselves is stored — this widget is a read-only observer
+    // except the opt-in gitWrite actions.
     // lanes: undefined = auto (cards while they fit, lanes past that).
-    const [ui, setUi] = context.storage.memory("opendeck", {
+    const [ui, setUi] = context.storage.store("opendeck", {
       initial: {
         collapsed: false,
         lanes: undefined as boolean | undefined,
         doneOpen: false,
-        tab: "overview" as FullTab,
+        tab: "agents" as FullTab,
+        usageRange: "30d" as "30d" | "90d" | "1y",
+        usageScope: "all" as "all" | "project",
       },
     })
+    // store writes are async; a failed disk write must never break the UI.
+    const saveUi = (mutation: Parameters<typeof setUi>[0]) => {
+      void setUi(mutation).catch(() => {})
+    }
     const [tick, setTick] = createSignal(0)
     const [now, setNow] = createSignal(Date.now())
     const [runs, setRuns] = createSignal<Record<string, Run>>({})
@@ -75,19 +98,27 @@ export function createDeck(context: Context) {
     // session it was opened from, so close lands back where the user was.
     const [full, setFull] = createSignal(false)
     const [lastRoot, setLastRoot] = createSignal<string | undefined>(undefined)
-    // Active full-view dashboard tab. Signal for reactivity; mirrored into
-    // the memory store so the last tab survives hot reloads (like lanes).
+    // Active full-view dashboard tab. Signal for reactivity; the durable store
+    // keeps the last tab across restarts (the effect below mirrors it back).
     // The store outlives the type: a tab removed in a later version (e.g.
-    // "files") can still be in memory, so validate before using it.
+    // "files", or "overview" which merged into "agents") can still be in
+    // memory, so validate before using it.
     const savedTab: string | undefined = ui.tab
     const [fullTab, setFullTabRaw] = createSignal<FullTab>(
-      savedTab === "agents" || savedTab === "activity" ? savedTab : "overview",
+      savedTab === "activity" ? "activity" : "agents",
     )
     // Agents tab keyboard selection: the rows' session ids in display order
     // (published by the view) and the selected id. The view renders the
     // selection later; movement lives here so the keymap stays dumb.
     const [agentIds, setAgentIdsRaw] = createSignal<string[]>([])
     const [agentSel, setAgentSel] = createSignal<string | undefined>(undefined)
+    // Full-view scroll requests: the keymap bumps seq, the view (which owns the
+    // scrollbox) consumes it — same handshake as diffJumpReq.
+    const [fullScrollReq, setFullScrollReq] = createSignal<{
+      kind: "page" | "half" | "top" | "bottom"
+      dir: 1 | -1
+      seq: number
+    }>({ kind: "top", dir: 1, seq: 0 })
     // Diff page (plugin route "opendeck-diff"): open flag + raw selected file
     // index (the view clamps it to the loaded list). No animations there, so
     // the diff page never needs the ticker.
@@ -108,6 +139,10 @@ export function createDeck(context: Context) {
     const [diffCursor, setDiffCursorRaw] = createSignal(0)
     // Bump to refetch the git working tree (the view keys its resource on it).
     const [diffGitTick, setDiffGitTick] = createSignal(0)
+    // Sidebar git line: bump on file/branch/tool events (debounced), never poll.
+    const [gitSumTick, setGitSumTick] = createSignal(0)
+    // Selected git working-tree file on the diff page (published by the view).
+    const [diffGitTarget, setDiffGitTargetRaw] = createSignal<DiffGitTarget | undefined>(undefined)
     // Commit source for the diff page (hash) and where esc returns to.
     const [diffCommit, setDiffCommit] = createSignal<string | undefined>(undefined)
     const [diffBack, setDiffBack] = createSignal<"full" | "git">("full")
@@ -127,6 +162,24 @@ export function createDeck(context: Context) {
     const [usageScope, setUsageScope] = createSignal<"all" | "project">("all")
     const [usageTop, setUsageTopRaw] = createSignal(0)
     const [usageTick, setUsageTick] = createSignal(0)
+    // Store ⇄ signals: the store is the durable copy (and another TUI instance
+    // may have written it), the signals drive the keymap. Validate on the way
+    // in so a value written by an older version never reaches the views.
+    createEffect(() => {
+      const tab: string | undefined = ui.tab
+      if (tab === "agents" || tab === "activity") setFullTabRaw(tab)
+      else if (tab === "overview") {
+        // merged tab from older versions: show agents and normalise the store
+        setFullTabRaw("agents")
+        saveUi((draft) => {
+          draft.tab = "agents"
+        })
+      }
+      const range: string | undefined = ui.usageRange
+      if (range === "30d" || range === "90d" || range === "1y") setUsageRangeRaw(range)
+      const scope: string | undefined = ui.usageScope
+      if (scope === "all" || scope === "project") setUsageScope(scope)
+    })
     // Help page (plugin route "opendeck-help"): open flag + the page it was
     // opened from, so close lands back there (full view/diff/git/usage).
     const [helpOpen, setHelpOpen] = createSignal(false)
@@ -238,7 +291,9 @@ export function createDeck(context: Context) {
       try {
         const at = Date.now()
         setNow(at)
-        setTick((value) => value + 1)
+        // animations: false freezes spinners/pulses/flashes but keeps the clock
+        // advancing, so elapsed times and recency stay live.
+        if (config.animations) setTick((value) => value + 1)
         for (const [key, until] of deadlines) if (until <= at) deadlines.delete(key)
         for (const [id, start] of flashes) if (at - start > FLASH_MS) flashes.delete(id)
         for (const [id, start] of launches) if (at - start > LAUNCH_MS) launches.delete(id)
@@ -277,6 +332,7 @@ export function createDeck(context: Context) {
 
     /** Briefly highlight a row (new activity / new permission request). */
     function flash(id: string) {
+      if (!config.animations) return
       if (flashes.has(id)) return
       flashes.set(id, Date.now())
       addDeadline(`flash:${id}`, FLASH_MS)
@@ -315,6 +371,55 @@ export function createDeck(context: Context) {
         ),
       )
     })
+    // Sidebar git line: refresh on file/branch/tool events, debounced by 1s so
+    // a burst of edits spawns one git call. No polling.
+    // Never delayed past 5s, so a continuous edit stream still refreshes.
+    let sumTimer: ReturnType<typeof setTimeout> | undefined
+    let sumFirst: number | undefined
+    function bumpGitSummary() {
+      const at = Date.now()
+      sumFirst ??= at
+      if (sumTimer !== undefined) clearTimeout(sumTimer)
+      const wait = Math.max(0, Math.min(1000, sumFirst + 5000 - at))
+      sumTimer = setTimeout(() => {
+        sumTimer = undefined
+        sumFirst = undefined
+        setGitSumTick((value) => value + 1)
+      }, wait)
+    }
+    const offFs = context.data.on("filesystem.changed", () => bumpGitSummary())
+    const offBranch = context.data.on("vcs.branch.updated", () => bumpGitSummary())
+    const offTool = context.data.on("session.tool.success", () => bumpGitSummary())
+    // Branch + working-tree counts for the sidebar's git line. Inert while the
+    // sidebar is collapsed, and refetched only through the tick above.
+    const [gitSummaryRes] = createResource(
+      () => {
+        if (ui.collapsed) return false
+        let cwd: string | undefined
+        try {
+          cwd = context.location?.directory || undefined
+        } catch {
+          cwd = undefined
+        }
+        return cwd ? { cwd, tick: gitSumTick() } : false
+      },
+      async (key): Promise<{ branch?: string; summary?: WorkingSummary; error?: string }> => {
+        try {
+          let branch: string | undefined
+          try {
+            branch = context.data.location.vcs.info()?.branch.current || undefined
+          } catch {
+            branch = undefined
+          }
+          if (!branch) branch = await loadBranch(key.cwd)
+          const summary = await loadWorkingSummary(key.cwd)
+          if (typeof summary === "string") return { branch, error: summary }
+          return { branch, summary }
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : String(err) }
+        }
+      },
+    )
     onCleanup(() => {
       cancelled = true
       popMode?.()
@@ -330,6 +435,10 @@ export function createDeck(context: Context) {
       stopTicker()
       offAsked()
       offReplied()
+      offFs()
+      offBranch()
+      offTool()
+      if (sumTimer !== undefined) clearTimeout(sumTimer)
     })
 
     // While the full view is the current route, a dedicated keymap mode scopes
@@ -496,6 +605,20 @@ export function createDeck(context: Context) {
           return current
         })
       }
+      // Drop bookkeeping for sessions the host no longer lists (deleted or
+      // archived) so a long-lived TUI does not grow forever. Skip an empty
+      // list: a transient read failure must not replay launch animations.
+      if (sessions.length > 0) {
+        const live = new Set(sessions.map((session) => session.id))
+        for (const id of seenSessions) if (!live.has(id)) seenSessions.delete(id)
+        setRuns((current) => {
+          const stale = Object.keys(current).filter((id) => !live.has(id))
+          if (stale.length === 0) return current
+          const next = { ...current }
+          for (const id of stale) delete next[id]
+          return next
+        })
+      }
       sessionsPrimed = true
     })
 
@@ -523,6 +646,8 @@ export function createDeck(context: Context) {
     const deck = {
       now,
       tick,
+      /** Parsed plugin options (cli.json `plugins[].options`). */
+      config,
       run(sessionID: string) {
         return runs()[sessionID]
       },
@@ -530,7 +655,7 @@ export function createDeck(context: Context) {
         return ui.collapsed
       },
       toggleCollapsed() {
-        setUi((draft) => {
+        saveUi((draft) => {
           draft.collapsed = !draft.collapsed
         })
         // Expanding may reveal still-running work; collapsing freezes the clock.
@@ -544,7 +669,7 @@ export function createDeck(context: Context) {
         return ui.lanes
       },
       setLanes(value: boolean | undefined) {
-        setUi((draft) => {
+        saveUi((draft) => {
           draft.lanes = value
         })
         ensureTicker()
@@ -554,20 +679,20 @@ export function createDeck(context: Context) {
         return ui.doneOpen ?? false
       },
       toggleDone() {
-        setUi((draft) => {
+        saveUi((draft) => {
           draft.doneOpen = !(ui.doneOpen ?? false)
         })
       },
-      /** Active full-view dashboard tab (1–4 keys / tab-row clicks). */
+      /** Active full-view dashboard tab (1–2 keys / tab-row clicks). */
       fullTab,
       setFullTab(tab: FullTab) {
         setFullTabRaw(tab)
-        setUi((draft) => {
+        // each tab opens at the top
+        setFullScrollReq((req) => ({ kind: "top", dir: 1, seq: req.seq + 1 }))
+        saveUi((draft) => {
           draft.tab = tab
         })
       },
-      /** Whether the full-screen Opendeck route is currently shown. */
-      fullOpen: full,
       isFullRoute,
       /** Open a session from the full view; returning to its root re-opens the full view. */
       diveInto(sessionID: string) {
@@ -695,6 +820,73 @@ export function createDeck(context: Context) {
       diffRefreshGit() {
         setDiffGitTick((value) => value + 1)
       },
+      /** Branch + working-tree counts for the sidebar's git line. */
+      gitSummary() {
+        return gitSummaryRes()
+      },
+      /** Whether the gitWrite option enables the git tab's write actions. */
+      gitWriteEnabled() {
+        return config.gitWrite
+      },
+      /** Selected git working-tree file on the diff page (published by the view). */
+      diffGitTarget,
+      setDiffGitTarget(target: DiffGitTarget | undefined) {
+        setDiffGitTargetRaw(target)
+      },
+      /**
+       * Run one opt-in git write action for the selected working-tree file.
+       * Guarded by config.gitWrite; confirms before discarding or staging all.
+       */
+      async gitAction(kind: "toggle" | "stage-all" | "discard" | "commit"): Promise<void> {
+        if (!config.gitWrite) return
+        const target = diffGitTarget()
+        if (!target) return
+        try {
+          let action: GitWriteAction
+          let message: string | undefined
+          if (kind === "toggle") action = target.staged ? "unstage" : "stage"
+          else if (kind === "stage-all") {
+            const ok = await context.ui.dialog.confirm({
+              title: "Stage all changes?",
+              message: `git add -A in ${target.cwd}`,
+            })
+            if (ok !== true) return
+            action = "stage-all"
+          } else if (kind === "discard") {
+            const ok = await context.ui.dialog.confirm({
+              title: "Discard changes?",
+              message: `${target.file} — this cannot be undone`,
+              label: { confirm: "Discard" },
+            })
+            if (ok !== true) return
+            action = "discard"
+          } else {
+            const input = await context.ui.dialog.prompt({
+              title: "Commit staged changes",
+              placeholder: "commit message",
+            })
+            message = input?.trim()
+            if (!message) return
+            action = "commit"
+          }
+          const error = await runGitWrite(target.cwd, action, {
+            file: target.file,
+            status: target.status,
+            untracked: target.untracked,
+            message,
+          })
+          if (error) context.ui.toast.show({ message: `git: ${error}`, variant: "error" })
+          else if (action === "commit") context.ui.toast.show({ message: "committed", variant: "success" })
+        } catch (err) {
+          context.ui.toast.show({
+            message: `git: ${err instanceof Error ? err.message : String(err)}`,
+            variant: "error",
+          })
+        } finally {
+          setDiffGitTick((value) => value + 1)
+          setGitSumTick((value) => value + 1)
+        }
+      },
       /** The diff view publishes its flattened tree rows here for diffKey. */
       setDiffRows(rows: readonly DiffRowInfo[]) {
         setDiffRowsRaw(rows)
@@ -714,7 +906,7 @@ export function createDeck(context: Context) {
             setDiffCursorRaw(cursor + 1) // raw; the view snaps overflow back
           } else if (key === "up") {
             setDiffCursorRaw(Math.max(0, cursor - 1))
-          } else if (key === "open" || key === "space") {
+          } else if (key === "open") {
             const row = rows[cursor]
             if (row === undefined) return
             if (row.dir) {
@@ -744,12 +936,12 @@ export function createDeck(context: Context) {
             setDiffCollapsed((current) => new Set(current).add(dirRow.path))
             setDiffCursorRaw(target)
           }
-          return
+          if (key === "up" || key === "down" || key === "open" || key === "close-parent") return
         }
-        // patch focus
+        // patch focus, plus scroll/jump keys from tree focus
         if (key === "down") deck.diffScrollBy(1)
         else if (key === "up") deck.diffScrollBy(-1)
-        else if (key === "space" || key === "page-down") deck.diffScrollBy(deck.diffPage())
+        else if (key === "page-down") deck.diffScrollBy(deck.diffPage())
         else if (key === "page-up") deck.diffScrollBy(-deck.diffPage())
         else if (key === "half-down") deck.diffScrollBy(Math.max(1, Math.floor(deck.diffPage() / 2)))
         else if (key === "half-up") deck.diffScrollBy(-Math.max(1, Math.floor(deck.diffPage() / 2)))
@@ -869,11 +1061,18 @@ export function createDeck(context: Context) {
       usageRange,
       setUsageRange(range: "30d" | "90d" | "1y") {
         setUsageRangeRaw(range)
+        saveUi((draft) => {
+          draft.usageRange = range
+        })
         setUsageTopRaw(0)
       },
       usageScope,
       toggleUsageScope() {
-        setUsageScope((current) => (current === "all" ? "project" : "all"))
+        const next = usageScope() === "all" ? "project" : "all"
+        setUsageScope(next)
+        saveUi((draft) => {
+          draft.usageScope = next
+        })
         setUsageTopRaw(0)
       },
       usageTop,
@@ -950,6 +1149,7 @@ export function createDeck(context: Context) {
       flash,
       /** 0 = not flashing; otherwise 1→0 fade progress (reactive via now()). */
       flashLevel(id: string): number {
+        if (!config.animations) return 0
         const start = flashes.get(id)
         if (start === undefined) return 0
         const progress = (now() - start) / FLASH_MS
@@ -957,6 +1157,7 @@ export function createDeck(context: Context) {
       },
       /** Fan-out launch frame for a freshly spawned subagent, if still launching. */
       launchGlyph(sessionID: string): string | undefined {
+        if (!config.animations) return undefined
         const start = launches.get(sessionID)
         if (start === undefined) return undefined
         const elapsed = now() - start
@@ -965,6 +1166,10 @@ export function createDeck(context: Context) {
       },
       /** Target the context bar's tween at the latest measured ratio. */
       setCtxTarget(target: number | undefined) {
+        if (!config.animations) {
+          setCtxTween(undefined)
+          return
+        }
         const current = ctxTween()
         if (target === undefined) {
           if (current !== undefined) setCtxTween(undefined)
@@ -1020,6 +1225,12 @@ export function createDeck(context: Context) {
       openAgentSel() {
         const selected = agentSel()
         if (selected) deck.diveInto(selected)
+      },
+      /** Latest full-view scroll request; consumed by the full view's scrollbox. */
+      fullScrollReq,
+      /** Ask the full view to scroll by a page/half page, or jump to top/bottom. */
+      fullScroll(kind: "page" | "half" | "top" | "bottom", dir: 1 | -1 = 1) {
+        setFullScrollReq((req) => ({ kind, dir, seq: req.seq + 1 }))
       },
       familyIds,
       hydrateMessages,

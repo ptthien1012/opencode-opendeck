@@ -240,6 +240,9 @@ export function UsageView(props: { deck: Deck; sessionID?: string }) {
         <Show when={data()} keyed fallback={<text wrapMode="none" flexShrink={0} fg={theme().text.muted}>loading usage…</text>}>
           {(d: SessionStatsInfo) => (
             <>
+              <Show when={d.sessions === 0}>
+                <text wrapMode="none" flexShrink={0} fg={theme().text.muted}>no usage recorded for this range</text>
+              </Show>
               <box flexDirection="row" gap={2} width={W()}>
                 <Section title="overview" w={colW()}>
                   <text wrapMode="none" flexShrink={0} fg={theme().text.base}>{fit(`${compact(d.sessions)} sessions · ${compact(d.subagents)} subagents`, inner())}</text>

@@ -2,11 +2,11 @@
 // Full-screen Opendeck view (Part 2), registered as the plugin route
 // "opendeck" — the widest surface the v2 TUI API offers (a whole page).
 // Borderless Grok-CLI style (see ui.tsx): a `◆ opendeck` header with a live
-// ctx gauge, a clickable tab row (1 Overview · 2 Agents · 3 Activity),
-// then one full-width stack per tab — overview: main, stats, charts, errors
-// (plus the permissions gate while requests are pending); agents: the
-// orchestrator tree or swimlanes, agent tokens, tools; activity: the tool
-// timeline sized to the terminal height, then the permissions gate.
+// ctx gauge, a clickable tab row (1 Agents · 2 Activity), then one full-width
+// stack per tab — agents: main context, the orchestrator tree or swimlanes,
+// agent tokens, tools, stats, charts, errors (plus the permissions gate while
+// requests are pending); activity: the tool timeline sized to the terminal
+// height, then the permissions gate.
 // `t` toggles cards ⇄ lanes; key hints sit at the bottom.
 //
 // Everything animates off the deck's single shared 120ms ticker — this file
@@ -14,13 +14,13 @@
 
 import type { SessionInfo } from "@opencode/client"
 import { usePlugin } from "@opencode/plugin/tui"
-import type { BoxRenderable, RGBA } from "@opentui/core"
-import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
+import type { BoxRenderable, RGBA, ScrollBoxRenderable } from "@opentui/core"
+import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch, untrack } from "solid-js"
 import { mixColor, pulseLevel, spinner } from "./anim.js"
 import { formatClock, formatElapsed, formatTokens, maskSecrets, shortModel, toolSummary } from "./format.js"
 import type { Deck, FullTab } from "./state.js"
 import { cacheShare, formatDuration, formatRate, hbar, toolState } from "./metrics.js"
-import { AgentTokensPanel, ChartsPanel, ErrorsPanel, StatsPanel } from "./panels.js"
+import { AgentTokensPanel, ChartsPanel, ErrorsPanel, FilesPanel, StatsPanel } from "./panels.js"
 import { agentLabel, agentName, assistantMessages, collectToolParts, collapseRows, lastActive, sessionTokens, toolCallCounts, useAgentState, useContextStats, usePermRecords } from "./shared.js"
 import type { MergedPerm } from "./shared.js"
 import { AgentCard, agentColor, Gauge, glyph, KeyHints, Marker, RailSpacer, Rule, Section, TabBar, TreeRail } from "./ui.js"
@@ -31,6 +31,8 @@ const LANE_LIMIT = 10
 const DONE_ROWS = 8
 const PENDING_ROWS = 3
 const TOOL_ROWS = 6
+/** Activity timeline cap (the pane scrolls; this only bounds render cost). */
+const TIMELINE_MAX = 200
 
 /** Tokens/sec text for an agent: latest turn plus the streaming average. */
 const rateText = (rate: { last?: number; avg?: number }) =>
@@ -38,9 +40,8 @@ const rateText = (rate: { last?: number; avg?: number }) =>
     ? "– tok/s"
     : `${formatRate(rate.last ?? rate.avg)} tok/s · avg ${formatRate(rate.avg)}`
 
-/** Header tab row in key order (1–3); the TabBar prefixes each key number. */
+/** Header tab row in key order (1–2); the TabBar prefixes each key number. */
 const FULL_TABS: readonly { id: FullTab; label: string }[] = [
-  { id: "overview", label: "Overview" },
   { id: "agents", label: "Agents" },
   { id: "activity", label: "Activity" },
 ]
@@ -490,70 +491,6 @@ function TreeAgent(props: {
   )
 }
 
-/**
- * Running subagent past the full-card budget as one compact row: the same
- * `├──`/`└──` rail cell (lit head `├●─` while it runs, continuous down the
- * wrapped rows), then `▸ name · model`, with the clock — or a `⚠ needs
- * approval` / `✗ failed` label — on the right. Text wraps instead of being
- * cut. Click opens the agent's session.
- */
-function TreeAgentCompact(props: {
-  deck: Deck
-  session: SessionInfo
-  w: number
-  last: boolean
-  pending?: { action: string; resources: string[] }
-}) {
-  const context = usePlugin()
-  const theme = () => context.theme
-  const agent = useAgentState(props.deck, props.session)
-  const selected = () => props.deck.agentSel() === props.session.id
-  const running = createMemo(() => context.data.session.status(props.session.id) === "running")
-  const failed = createMemo(() => agent.status() === "error")
-  const clock = createMemo(() => (agent.elapsedMs() !== undefined ? formatElapsed(agent.elapsedMs()!) : "-"))
-  const model = createMemo(() => shortModel(agent.model()?.id, 10_000))
-  // Right side: the attention label first, then a fresh failure, then the clock.
-  const right = createMemo(() => (props.pending ? "⚠ needs approval" : failed() ? "✗ failed" : clock()))
-  const rightColor = createMemo(() => {
-    if (props.pending) return theme().text.feedback.warning.base
-    if (failed()) return theme().text.feedback.error.base
-    return theme().text.muted
-  })
-  // The name wraps under the 3-cell rail, so the label keeps the whole task,
-  // and carries the live tokens/sec rate.
-  const label = createMemo(
-    () => `${agentLabel(props.session, 10_000, 10_000)} · ${formatRate(agent.rate().last ?? agent.rate().avg)} tok/s`,
-  )
-
-  return (
-    <box
-      flexDirection="row"
-      width={props.w}
-      justifyContent="space-between"
-      alignItems="stretch"
-      onMouseDown={() => props.deck.diveInto(props.session.id)}
-    >
-      <TreeRail
-        last={props.last}
-        active={running()}
-        phase={props.deck.tick()}
-        color={agentColor(theme(), props.session.id)}
-        w={3}
-        join={0}
-      />
-      <box flexDirection="row" flexShrink={1}>
-        <text wrapMode="none" flexShrink={0} fg={theme().hue.accent[200]}>{selected() ? "›" : " "}</text>
-        <text wrapMode="word" flexGrow={1} flexShrink={1} fg={selected() ? theme().hue.accent[200] : agentColor(theme(), props.session.id)}>
-          <b>{` ${agent.indicator()} ${label()} · ${model()}`}</b>
-        </text>
-      </box>
-      <text wrapMode="none" fg={rightColor()} flexShrink={0}>
-        {right()}
-      </text>
-    </box>
-  )
-}
-
 /** Compact one-line row for a finished (done/errored) subagent:
  * `✓ name · task · model · in/out tokens · duration`; a long task label wraps
  * under the tail instead of being cut.
@@ -645,7 +582,7 @@ type AgentTreeRow = {
   ancestorsLast: boolean[]
 }
 
-function AgentsArea(props: { deck: Deck; sessionID: string; w: number; h: number }) {
+function AgentsArea(props: { deck: Deck; sessionID: string; w: number }) {
   const context = usePlugin()
   const theme = () => context.theme
 
@@ -728,13 +665,6 @@ function AgentsArea(props: { deck: Deck; sessionID: string; w: number; h: number
     const room = Math.max(0, MAX_CARDS - lead.length)
     return room === 0 ? lead : [...lead, ...rest.slice(-room)]
   })
-
-  // Vertical budget: ~14 rows of tab chrome (header, tabs, rule, section title)
-  // plus the MainCard leaves room for ⌊(h - 20) / 6⌋ cards. Cards wrap text onto
-  // extra rows, so each is budgeted 6 rows instead of 5. Running branches past
-  // that budget collapse to single wrapped rows, so a busy orchestrator fills
-  // the terminal instead of overflowing it.
-  const fullCards = createMemo(() => Math.max(1, Math.floor((props.h - 20) / 6)))
 
   // Flatten the running tree (direct children plus their running descendants,
   // depth 3 max) into display order, so the card budget and the keyboard order
@@ -822,40 +752,32 @@ function AgentsArea(props: { deck: Deck; sessionID: string; w: number; h: number
         >
           <box flexDirection="column">
             <Show when={main()} keyed>
-              {(session: SessionInfo) => <MainCard deck={props.deck} session={session} w={inner()} />}
+              {(session: SessionInfo) => (
+                <box id={`agent-row-${session.id}`} flexDirection="column">
+                  <MainCard deck={props.deck} session={session} w={inner()} />
+                </box>
+              )}
             </Show>
             <Show
               when={runningChildren().length > 0}
               fallback={<text wrapMode="none" fg={theme().text.faint}>{"   no running agents"}</text>}
             >
               <For each={rowIds()}>
-                {(id, index) => {
+                {(id) => {
                   const row = () => rowsById().get(id)!
-                  // The budget counts every visible row, nested ones included.
-                  const full = () => index() < fullCards()
                   const rowW = () => Math.max(8, inner() - 3 * (row().depth - 1))
                   return (
-                    <box flexDirection="row" alignItems="stretch">
+                    <box flexDirection="row" alignItems="stretch" id={`agent-row-${id}`}>
                       <For each={row().ancestorsLast}>
                         {(ancestorLast) => <RailSpacer open={!ancestorLast} w={3} />}
                       </For>
-                      {full() ? (
-                        <TreeAgent
-                          deck={props.deck}
-                          session={row().session}
-                          w={rowW()}
-                          pending={pendingByAgent().get(id)}
-                          last={row().last}
-                        />
-                      ) : (
-                        <TreeAgentCompact
-                          deck={props.deck}
-                          session={row().session}
-                          w={rowW()}
-                          pending={pendingByAgent().get(id)}
-                          last={row().last}
-                        />
-                      )}
+                      <TreeAgent
+                        deck={props.deck}
+                        session={row().session}
+                        w={rowW()}
+                        pending={pendingByAgent().get(id)}
+                        last={row().last}
+                      />
                     </box>
                   )
                 }}
@@ -897,22 +819,52 @@ export function FullView(props: { deck: Deck; sessionID?: string }) {
   // The activity tab sizes its timeline off the full terminal height (same
   // pattern as the diff/git/usage pages).
   const H = createMemo(() => context.renderer.terminalHeight ?? 40)
+  // Width inside the scrollbox: its vertical scrollbar takes one column.
+  const CW = createMemo(() => Math.max(46, W() - 1))
+
+  // Scrollable tab content: mouse wheel scrolls natively, keymap requests via
+  // the deck's seq channel, and the selected agent row is kept in view.
+  let scrollRef: ScrollBoxRenderable | undefined
 
   const sid = createMemo(() => props.sessionID ?? props.deck.fullSessionID())
 
   // Footer hints: tabs first, then agents-tab selection, then the global
   // pages. `wrap` keeps every hint whole and wraps the row on narrow terms.
   const hintItems = createMemo<readonly [string, string][]>(() => {
-    const items: [string, string][] = [["1-3", "tabs"]]
-    if (props.deck.fullTab() === "agents") items.push(["j/k", "select"], ["enter", "open"], ["t", "cards/lanes"])
+    const items: [string, string][] = [["1/2", "tabs"]]
+    if (props.deck.fullTab() === "agents") items.push(["j/k", "select"], ["enter", "open"], ["t", "cards/lanes"], ["pgdn", "scroll"])
     items.push(["f", "changes"], ["u", "usage"], ["?", "help"], ["q", "back"])
     return items
+  })
+
+  // Scroll requests from the keymap: seq is the only trigger.
+  let lastScrollSeq = untrack(() => props.deck.fullScrollReq().seq)
+  createEffect(() => {
+    const req = props.deck.fullScrollReq()
+    if (req.seq === lastScrollSeq) return
+    lastScrollSeq = req.seq
+    const box = scrollRef
+    if (!box) return
+    // keep one row of overlap so paging never skips the boundary line
+    const page = Math.max(1, ((box.viewport?.height ?? 0) || H() - 8) - 1)
+    if (req.kind === "top") box.scrollTo(0)
+    else if (req.kind === "bottom") box.scrollTo(box.scrollHeight)
+    else box.scrollBy(req.dir * (req.kind === "page" ? page : Math.max(1, Math.floor(page / 2))))
+  })
+
+  // Selection follows the keyboard: the selected agent row scrolls into view.
+  createEffect(() => {
+    const id = props.deck.agentSel()
+    if (!id || props.deck.fullTab() !== "agents") return
+    // wait one frame so the row has its layout (e.g. right after a tab switch)
+    setTimeout(() => scrollRef?.scrollChildIntoView(`agent-row-${id}`), 16)
   })
 
   return (
     <box
       flexDirection="column"
       width="100%"
+      height="100%"
       ref={(r: BoxRenderable) => {
         rootRef = r
       }}
@@ -925,32 +877,50 @@ export function FullView(props: { deck: Deck; sessionID?: string }) {
         {(id: string) => (
           <>
             <TitleRow deck={props.deck} sessionID={id} w={W()} />
-            <box flexDirection="column" width={W()}>
-              <Switch>
-                <Match when={props.deck.fullTab() === "agents"}>
-                  <AgentsArea deck={props.deck} sessionID={id} w={W()} h={H()} />
-                  <AgentTokensPanel deck={props.deck} sessionID={id} w={W()} />
-                  <ToolsPanel deck={props.deck} sessionID={id} w={W()} />
-                </Match>
-                {/* Timeline rows wrap to two terminal rows, so halve the height
-                    budget; the permissions gate sits under it. */}
-                <Match when={props.deck.fullTab() === "activity"}>
-                  <>
-                    <Timeline deck={props.deck} sessionID={id} w={W()} rows={Math.max(4, Math.floor((H() - 16) / 2))} />
-                    <GatePanel deck={props.deck} sessionID={id} w={W()} />
-                  </>
-                </Match>
-                <Match when={props.deck.fullTab() === "overview"}>
-                  <MainPanel deck={props.deck} sessionID={id} w={W()} />
-                  <StatsPanel deck={props.deck} sessionID={id} w={W()} />
-                  <ChartsPanel deck={props.deck} sessionID={id} w={W()} />
-                  <ErrorsPanel deck={props.deck} sessionID={id} w={W()} />
-                  <Show when={props.deck.pendingPermissions(id).length > 0}>
-                    <GatePanel deck={props.deck} sessionID={id} w={W()} />
-                  </Show>
-                </Match>
-              </Switch>
-            </box>
+            <scrollbox
+              ref={(r: ScrollBoxRenderable) => {
+                scrollRef = r
+              }}
+              scrollY
+              flexGrow={1}
+              width={W()}
+            >
+              <box flexDirection="column" width="100%">
+                <Switch>
+                  <Match when={props.deck.fullTab() === "agents"}>
+                    <>
+                      <MainPanel deck={props.deck} sessionID={id} w={CW()} />
+                      <AgentsArea deck={props.deck} sessionID={id} w={CW()} />
+                      <AgentTokensPanel deck={props.deck} sessionID={id} w={CW()} />
+                      <Show when={props.deck.config.panels.files}>
+                        <FilesPanel deck={props.deck} sessionID={id} w={CW()} />
+                      </Show>
+                      <ToolsPanel deck={props.deck} sessionID={id} w={CW()} />
+                      <Show when={props.deck.config.panels.stats}>
+                        <StatsPanel deck={props.deck} sessionID={id} w={CW()} />
+                      </Show>
+                      <Show when={props.deck.config.panels.charts}>
+                        <ChartsPanel deck={props.deck} sessionID={id} w={CW()} />
+                      </Show>
+                      <Show when={props.deck.config.panels.errors}>
+                        <ErrorsPanel deck={props.deck} sessionID={id} w={CW()} />
+                      </Show>
+                      <Show when={props.deck.pendingPermissions(id).length > 0}>
+                        <GatePanel deck={props.deck} sessionID={id} w={CW()} />
+                      </Show>
+                    </>
+                  </Match>
+                  {/* The pane scrolls, so the timeline is not capped by terminal
+                      height; the permissions gate sits under it. */}
+                  <Match when={props.deck.fullTab() === "activity"}>
+                    <>
+                      <Timeline deck={props.deck} sessionID={id} w={CW()} rows={TIMELINE_MAX} />
+                      <GatePanel deck={props.deck} sessionID={id} w={CW()} />
+                    </>
+                  </Match>
+                </Switch>
+              </box>
+            </scrollbox>
             <KeyHints items={hintItems()} w={W()} wrap />
           </>
         )}

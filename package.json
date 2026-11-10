@@ -1,17 +1,29 @@
 {
   "name": "opencode-opendeck",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "description": "OpenCode TUI plugin — live session dashboard in the sidebar (context, cost, agents, activity, permissions)",
+  "description": "Live mission-control dashboard for the OpenCode v2 TUI: context gauge, live agent tree, approvals, git and files-by-agent, diff, usage.",
   "author": "opencode-opendeck contributors",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ptthien97/opencode-opendeck.git"
+  },
+  "homepage": "https://github.com/ptthien97/opencode-opendeck#readme",
+  "bugs": {
+    "url": "https://github.com/ptthien97/opencode-opendeck/issues"
+  },
   "keywords": [
     "opencode",
     "opencode-plugin",
     "tui",
     "sidebar",
     "dashboard",
-    "opendeck"
+    "opendeck",
+    "agents",
+    "git",
+    "diff",
+    "usage"
   ],
   "engines": {
     "opencode": ">=2.0.0"
@@ -25,7 +37,8 @@
   ],
   "scripts": {
     "build": "bun run script/build.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@opencode/plugin": "^2.0.15",

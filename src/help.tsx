@@ -19,10 +19,13 @@ const SYM_W = 8
 // Left column: one row per page with its keys.
 const NAV_ROWS: [string, string][] = [
   ["/opendeck", "open the dashboard"],
-  ["1-3", "dashboard tabs"],
+  ["1/2", "agents/activity tab"],
   ["t", "cards/lanes"],
   ["j/k", "select agent (agents tab)"],
   ["enter", "open selected agent"],
+  ["pgup/pgdn", "scroll"],
+  ["ctrl+d/u", "half page"],
+  ["g/G", "top/bottom"],
   ["f", "changes · diff"],
   ["u", "usage"],
   ["?", "help"],
@@ -41,6 +44,10 @@ const DIFF_ROWS: [string, string][] = [
   ["n/p", "hunk"],
   ["g/G", "top/bottom"],
   ["r", "refresh git"],
+  ["space", "stage/unstage (gitWrite)"],
+  ["a", "stage all (gitWrite)"],
+  ["x", "discard file (gitWrite)"],
+  ["c", "commit staged (gitWrite)"],
   ["?", "help"],
   ["q/esc", "back"],
 ]
@@ -60,7 +67,14 @@ const USAGE_ROWS: [string, string][] = [
   ["p", "all/project"],
   ["j/k", "models"],
   ["r", "reload"],
-  ["esc", "back"],
+  ["?", "help"],
+  ["q/esc", "back"],
+]
+
+const HELP_ROWS: [string, string][] = [
+  ["j/k", "scroll"],
+  ["g/G", "top/bottom"],
+  ["q/esc/?", "back"],
 ]
 
 // Right column: the symbol legend. Status glyphs come from the shared glyph
@@ -76,6 +90,7 @@ const SYMBOL_ROWS: [string, string][] = [
   [glyph.error, "failed"],
   [glyph.interrupted, "interrupted"],
   ["A M D ?", "file added/modified/deleted/untracked"],
+  ["✎", "changed outside agents"],
   ["⎇", "branch"],
   ["[HEAD→x]", "git ref"],
 ]
@@ -92,6 +107,7 @@ const SECTIONS: readonly { title: string; rows: readonly [string, string][]; slo
   { title: "diff page", rows: DIFF_ROWS, slot: KEY_W },
   { title: "git log", rows: GIT_ROWS, slot: KEY_W },
   { title: "usage", rows: USAGE_ROWS, slot: KEY_W },
+  { title: "help page", rows: HELP_ROWS, slot: KEY_W },
   { title: "symbols", rows: SYMBOL_ROWS, slot: SYM_W },
 ]
 
