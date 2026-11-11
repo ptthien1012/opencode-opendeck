@@ -36,9 +36,10 @@
     "tui.js"
   ],
   "scripts": {
-    "build": "bun run script/build.mjs",
+    "bundle": "bun run script/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "check": "bun run typecheck && bun run test && bun run bundle"
   },
   "dependencies": {
     "@opencode/plugin": "^2.0.15",

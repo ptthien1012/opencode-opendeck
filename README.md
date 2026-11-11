@@ -6,6 +6,7 @@
 ![License MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 ![Bun](https://img.shields.io/badge/runtime-bun-f9f1e1?style=flat-square)
 ![No network](https://img.shields.io/badge/network-none-success?style=flat-square)
+![CI](https://github.com/ptthien97/opencode-opendeck/actions/workflows/ci.yml/badge.svg)
 
 ![opendeck: three subagents running live, then the Activity, diff and usage pages](docs/demo.gif)
 
@@ -94,26 +95,66 @@ general (2)
 
 *(Illustrative — layout adapts to your terminal width and theme.)*
 
-## Quick start
+## Install
 
-opendeck is a local-directory plugin for **OpenCode v2** (`2.0.0+`) and needs [Bun](https://bun.sh).
+Requires **OpenCode v2** (`2.0.0+`) and `git`. [Bun](https://bun.sh) is only
+needed when you install from source with `--dev` / `-Dev`.
+
+### One command (macOS · Linux · WSL)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ptthien97/opencode-opendeck/master/install.sh | bash
+```
+
+This clones the repo into `~/.local/share/opencode-opendeck` and adds that
+absolute path to the `plugins` array in `~/.config/opencode/cli.json` (the file
+is backed up first, and re-running is idempotent). Pass `--dir <path>` to install
+somewhere else, `--ref <ref>` to pin a branch/tag/commit, or `--dev` to build
+`dist/` from source with Bun. `--uninstall` reverses it, `--help` lists
+everything.
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/ptthien97/opencode-opendeck/master/install.ps1 | iex
+```
+
+Same options as flags: `-Dir`, `-Ref`, `-Dev`, `-Uninstall`, `-Yes`. It defaults
+to `%LOCALAPPDATA%\opencode-opendeck` and writes the path with forward slashes.
+
+### With the OpenCode CLI
+
+```bash
+opencode plugin add github:ptthien97/opencode-opendeck
+```
+
+`dist/` is committed, so git installs need no build step.
+
+### Manual / for contributors
 
 ```bash
 git clone https://github.com/ptthien97/opencode-opendeck.git
 cd opencode-opendeck
-bun install && bun run build
+bun install && bun run bundle
 ```
 
-Add the absolute path to the `plugins` array in `~/.config/opencode/cli.json`:
+Then add the absolute path to the `plugins` array in `~/.config/opencode/cli.json`
+(on Windows: `%USERPROFILE%\.config\opencode\cli.json`):
 
 ```json
 {
+  "$schema": "https://opencode.ai/v2/cli.json",
   "plugins": ["/absolute/path/to/opencode-opendeck"]
 }
 ```
 
-Restart OpenCode. The widget appears in the session sidebar (`ctrl+x` then `b`
-if the sidebar is hidden). Type `/opendeck` for the full view, `?` for every key.
+### Update / uninstall
+
+Re-run the installer to update; use `--uninstall` (or `-Uninstall` on Windows)
+to remove it, or `opencode plugin remove github:ptthien97/opencode-opendeck` if
+you added it through the CLI.
+
+Restart OpenCode, then type `/opendeck`. The sidebar widget appears automatically (`ctrl+x` then `b` if the sidebar is hidden).
 
 ## Pages and keys
 
@@ -208,7 +249,8 @@ Set `"animations": false` to freeze all of them; clocks keep updating.
 bun install
 bun run typecheck   # tsc --noEmit (strict)
 bun run test        # bun test
-bun run build       # rebuild dist/ after editing src/
+bun run bundle      # rebuild dist/ after editing src/ (commit dist/ with your change)
+bun run check       # typecheck + test + bundle
 ```
 
 OpenCode hot-reloads file plugins; if it does not, restart it.
