@@ -7,9 +7,7 @@
 ![Bun](https://img.shields.io/badge/runtime-bun-f9f1e1?style=flat-square)
 ![No network](https://img.shields.io/badge/network-none-success?style=flat-square)
 
-<!-- Screenshot placeholder: drop a real capture at docs/screenshot.png (or a GIF at docs/demo.gif) and uncomment:
-![opendeck in the OpenCode TUI](docs/screenshot.png)
--->
+![opendeck: three subagents running live, then the Activity, diff and usage pages](docs/demo.gif)
 
 When OpenCode fans out into subagents, the chat scroll stops telling you what is
 going on. opendeck adds a compact sidebar and a set of full-screen pages that
@@ -38,7 +36,25 @@ Inspired by [claude-flightdeck](https://github.com/scasella/claude-flightdeck), 
 | **Built for terminals** | one shared 120 ms ticker that stops when idle, scrollable pages, every row fits its width |
 | **Private by design** | no network calls, no session mutation, secrets masked in tool rows |
 
-## What it looks like
+## Screenshots
+
+**Agents tab** — the orchestrator and three parallel subagents, live:
+
+![Agents tab with live subagent cards](docs/agents.png)
+
+**Sidebar** — context, git line and agent cards right next to the chat:
+
+![Sidebar next to the OpenCode chat](docs/sidebar.png)
+
+**Diff page, git tab** — agent edits next to a hand edit marked `✎`:
+
+![Diff page on the git tab with a manual-edit marker](docs/diff.png)
+
+**Usage page** — tokens, cache, models and tools for the current project:
+
+![Usage page](docs/usage.png)
+
+## What it looks like in text
 
 Sidebar (always visible next to the chat):
 
