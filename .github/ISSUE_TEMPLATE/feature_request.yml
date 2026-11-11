@@ -1,0 +1,15 @@
+name: Feature request
+description: Something you want to see while your agents run
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What do you want to know or do mid-run?
+      description: Describe the question you could not answer from the TUI, not only the widget you want.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea (optional)

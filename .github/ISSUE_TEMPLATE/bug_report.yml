@@ -1,0 +1,34 @@
+name: Bug report
+description: Something in opendeck is broken or looks wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you saw. A screenshot helps a lot.
+    validations:
+      required: true
+  - type: input
+    id: opencode
+    attributes:
+      label: OpenCode version
+      placeholder: "opencode --version → 2.2.7"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install opendeck?
+      options:
+        - install.sh (curl | bash)
+        - install.ps1 (Windows)
+        - opencode plugin add github:ptthien97/opencode-opendeck
+        - local checkout
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and terminal
+      placeholder: "macOS 15 · Ghostty / Ubuntu 24.04 · WSL / Windows 11 · Windows Terminal"

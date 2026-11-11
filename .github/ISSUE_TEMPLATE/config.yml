@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and show-and-tell
+    url: https://github.com/ptthien97/opencode-opendeck/discussions
+    about: Ask how to set something up, or share your setup.
