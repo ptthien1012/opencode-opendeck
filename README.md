@@ -5,10 +5,16 @@
 ![OpenCode v2](https://img.shields.io/badge/OpenCode-v2-111?style=flat-square)
 ![License MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
 ![Bun](https://img.shields.io/badge/runtime-bun-f9f1e1?style=flat-square)
-![No network](https://img.shields.io/badge/network-none-success?style=flat-square)
-![CI](https://github.com/ptthien97/opencode-opendeck/actions/workflows/ci.yml/badge.svg)
+![No telemetry](https://img.shields.io/badge/telemetry-none-success?style=flat-square)
+![CI](https://github.com/ptthien1012/opencode-opendeck/actions/workflows/ci.yml/badge.svg)
 
-![opendeck: three subagents running live, then the Activity, diff and usage pages](docs/demo.gif)
+![opendeck: two subagents running live, then the diff and usage pages](docs/demo.gif)
+
+```bash
+opencode plugin add github:ptthien1012/opencode-opendeck
+```
+
+Restart OpenCode, type `/opendeck`. More ways to install: [Install](#install).
 
 When OpenCode fans out into subagents, the chat scroll stops telling you what is
 going on. opendeck adds a compact sidebar and a set of full-screen pages that
@@ -18,8 +24,6 @@ answer the questions you actually have mid-run:
 - *Which agents are running right now, what are they doing, and for how long?*
 - *Is anything waiting for my approval?*
 - *Which files changed — by which agent — and what did I edit by hand?*
-
-Inspired by [claude-flightdeck](https://github.com/scasella/claude-flightdeck), rebuilt for the OpenCode v2 plugin API.
 
 ## Features
 
@@ -37,73 +41,18 @@ Inspired by [claude-flightdeck](https://github.com/scasella/claude-flightdeck), 
 | **Built for terminals** | one shared 120 ms ticker that stops when idle, scrollable pages, every row fits its width |
 | **Private by design** | no network calls, no session mutation, secrets masked in tool rows |
 
-## Screenshots
-
-**Agents tab** — the orchestrator and three parallel subagents, live:
-
-![Agents tab with live subagent cards](docs/agents.png)
-
-**Sidebar** — context, git line and agent cards right next to the chat:
-
-![Sidebar next to the OpenCode chat](docs/sidebar.png)
-
-**Diff page, git tab** — agent edits next to a hand edit marked `✎`:
-
-![Diff page on the git tab with a manual-edit marker](docs/diff.png)
-
-**Usage page** — tokens, cache, models and tools for the current project:
-
-![Usage page](docs/usage.png)
-
-## What it looks like in text
-
-Sidebar (always visible next to the chat):
-
-```text
-▾ opendeck · claude-sonnet-4.5
-ctx ▰▰▰▰▱▱▱▱▱▱ 42% · in 84k · out 12k
-⎇ main · 5 files +120 −34
-── needs approval ─────────────
- ! bash  rm -rf dist
-── agents ─────────────────────
- ⠹ explore · haiku        02:14
-   read ./src/state.ts
- ⠼ general · sonnet       00:41
-   edit ./src/sidebar.tsx
- ▸ Done 3 ✓3
-⤢ open · /opendeck
-```
-
-Full view, Agents tab (`/opendeck`):
-
-```text
-◆ opendeck  Refactor the sidebar           ctx ▰▰▰▰▱▱▱▱▱▱ 42% · sonnet-4.5
- 1 Agents   2 Activity
-──────────────────────────────────────────────────────────────────────────
-── main ─────────────────────────────────────────────────────── ● working
-ctx ▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱ 42%  84k/200k
-total in 84k (cache 71%) · out 12k
-── agents ─────────────────────────────────────────── 2 running · 3 done
-├─ ⠹ explore · haiku · read ./src/state.ts                       02:14
-└─ ⠼ general · sonnet · edit ./src/sidebar.tsx                   00:41
-── files changed ─────────────────────────────────────────── 5 · f diff
-general (2)
-  M ./src/sidebar.tsx                                           +43 -0
-  A ./src/config.ts                                             +48 -0
-1/2 tabs · j/k select · enter open · t cards/lanes · pgdn scroll · f changes
-```
-
-*(Illustrative — layout adapts to your terminal width and theme.)*
-
 ## Install
 
 Requires **OpenCode v2** (`2.0.0+`) and `git`. [Bun](https://bun.sh) is only
 needed when you install from source with `--dev` / `-Dev`.
 
+After installing, restart OpenCode and type `/opendeck`. The sidebar widget
+appears automatically (`ctrl+x` then `b` if the sidebar is hidden).
+
 ### One command (macOS · Linux · WSL)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ptthien97/opencode-opendeck/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ptthien1012/opencode-opendeck/master/install.sh | bash
 ```
 
 This clones the repo into `~/.local/share/opencode-opendeck` and adds that
@@ -116,7 +65,7 @@ everything.
 ### Windows (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/ptthien97/opencode-opendeck/master/install.ps1 | iex
+irm https://raw.githubusercontent.com/ptthien1012/opencode-opendeck/master/install.ps1 | iex
 ```
 
 Same options as flags: `-Dir`, `-Ref`, `-Dev`, `-Uninstall`, `-Yes`. It defaults
@@ -125,7 +74,7 @@ to `%LOCALAPPDATA%\opencode-opendeck` and writes the path with forward slashes.
 ### With the OpenCode CLI
 
 ```bash
-opencode plugin add github:ptthien97/opencode-opendeck
+opencode plugin add github:ptthien1012/opencode-opendeck
 ```
 
 `dist/` is committed, so git installs need no build step.
@@ -133,7 +82,7 @@ opencode plugin add github:ptthien97/opencode-opendeck
 ### Manual / for contributors
 
 ```bash
-git clone https://github.com/ptthien97/opencode-opendeck.git
+git clone https://github.com/ptthien1012/opencode-opendeck.git
 cd opencode-opendeck
 bun install && bun run bundle
 ```
@@ -151,10 +100,26 @@ Then add the absolute path to the `plugins` array in `~/.config/opencode/cli.jso
 ### Update / uninstall
 
 Re-run the installer to update; use `--uninstall` (or `-Uninstall` on Windows)
-to remove it, or `opencode plugin remove github:ptthien97/opencode-opendeck` if
+to remove it, or `opencode plugin remove github:ptthien1012/opencode-opendeck` if
 you added it through the CLI.
 
-Restart OpenCode, then type `/opendeck`. The sidebar widget appears automatically (`ctrl+x` then `b` if the sidebar is hidden).
+## Screenshots
+
+**Agents tab** — the main agent and two parallel subagents, live:
+
+![Agents tab with live subagent cards](docs/agents.png)
+
+**Sidebar** — context, git line and agent cards right next to the chat:
+
+![Sidebar next to the OpenCode chat](docs/sidebar.png)
+
+**Diff page, git tab** — agent edits next to a hand edit marked `✎`:
+
+![Diff page on the git tab with a manual-edit marker](docs/diff.png)
+
+**Usage page** — tokens, cache, models and tools for this project:
+
+![Usage page](docs/usage.png)
 
 ## Pages and keys
 
@@ -269,6 +234,10 @@ OpenCode hot-reloads file plugins; if it does not, restart it.
 | `script/build.mjs` | Solid transform build |
 
 Issues and pull requests are welcome.
+
+## Credits
+
+Inspired by [claude-flightdeck](https://github.com/scasella/claude-flightdeck), rebuilt for the OpenCode v2 plugin API.
 
 ## License
 

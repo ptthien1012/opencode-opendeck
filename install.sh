@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # opendeck installer — macOS, Linux and WSL.
 #
-#   curl -fsSL https://raw.githubusercontent.com/ptthien97/opencode-opendeck/master/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/ptthien1012/opencode-opendeck/master/install.sh | bash
 #
 # Installs into ~/.local/share/opencode-opendeck, then registers that directory
 # as a plugin in <config>/opencode/cli.json so OpenCode loads it from source.
 set -eu
 
-REPO_URL="https://github.com/ptthien97/opencode-opendeck.git"
+REPO_URL="https://github.com/ptthien1012/opencode-opendeck.git"
 
 die() {
   echo "error: $*" >&2

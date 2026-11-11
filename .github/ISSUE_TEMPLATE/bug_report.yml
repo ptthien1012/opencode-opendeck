@@ -23,7 +23,7 @@ body:
       options:
         - install.sh (curl | bash)
         - install.ps1 (Windows)
-        - opencode plugin add github:ptthien97/opencode-opendeck
+        - opencode plugin add github:ptthien1012/opencode-opendeck
         - local checkout
     validations:
       required: true

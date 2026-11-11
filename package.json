@@ -7,11 +7,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ptthien97/opencode-opendeck.git"
+    "url": "git+https://github.com/ptthien1012/opencode-opendeck.git"
   },
-  "homepage": "https://github.com/ptthien97/opencode-opendeck#readme",
+  "homepage": "https://github.com/ptthien1012/opencode-opendeck#readme",
   "bugs": {
-    "url": "https://github.com/ptthien97/opencode-opendeck/issues"
+    "url": "https://github.com/ptthien1012/opencode-opendeck/issues"
   },
   "keywords": [
     "opencode",

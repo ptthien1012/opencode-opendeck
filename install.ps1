@@ -3,7 +3,7 @@
   opendeck installer for Windows (PowerShell 5.1 and 7).
 
 .EXAMPLE
-  irm https://raw.githubusercontent.com/ptthien97/opencode-opendeck/master/install.ps1 | iex
+  irm https://raw.githubusercontent.com/ptthien1012/opencode-opendeck/master/install.ps1 | iex
 
 .EXAMPLE
   .\install.ps1 -Dir "$env:LOCALAPPDATA\opencode-opendeck" -Ref master
@@ -19,7 +19,7 @@ param(
   [switch]$Uninstall,
   [switch]$Yes,
   # Advanced: clone from another URL or local path.
-  [string]$Repo = "https://github.com/ptthien97/opencode-opendeck.git"
+  [string]$Repo = "https://github.com/ptthien1012/opencode-opendeck.git"
 )
 
 $ErrorActionPreference = "Stop"

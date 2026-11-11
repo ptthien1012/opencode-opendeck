@@ -5,7 +5,7 @@ Thanks for helping! opendeck is small on purpose, so a few rules keep it that wa
 ## Setup
 
 ```bash
-git clone https://github.com/ptthien97/opencode-opendeck.git
+git clone https://github.com/ptthien1012/opencode-opendeck.git
 cd opencode-opendeck
 bun install
 bun run check      # typecheck + tests + bundle
