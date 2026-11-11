@@ -97,7 +97,9 @@ function Update-CliJson {
       [void]$kept.Add($entry)
     }
   }
-  if ($Action -eq "Add" -and -not $matched) {
+  # Matching entries were dropped above, so Add always appends exactly one
+  # (re-running the installer keeps the entry instead of removing it).
+  if ($Action -eq "Add") {
     [void]$kept.Add($Value)
   }
 
