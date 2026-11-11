@@ -79,6 +79,58 @@ jobs:
             exit 1
           fi
 
+      - name: install.ps1 smoke test (PowerShell 7 and Windows PowerShell 5.1)
+        if: matrix.os == 'windows-latest' && github.event_name == 'push'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          foreach ($exe in @("pwsh", "powershell")) {
+            $root = Join-Path $env:RUNNER_TEMP "od-$exe"
+            New-Item -ItemType Directory -Force -Path "$root\cfg\opencode" | Out-Null
+            $env:XDG_CONFIG_HOME = "$root\cfg"
+            $cli = "$root\cfg\opencode\cli.json"
+            # an existing config with another plugin and key must survive
+            '{"theme":"x","plugins":["some-other-plugin"]}' | Set-Content -Encoding ascii $cli
+            $dir = "$root\od"
+            $repo = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY.git"
+            & $exe -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $dir -Ref $env:GITHUB_SHA -Repo $repo
+            if ($LASTEXITCODE) { throw "$exe install failed" }
+            & $exe -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $dir -Ref $env:GITHUB_SHA -Repo $repo
+            if ($LASTEXITCODE) { throw "$exe re-install failed" }
+            $data = Get-Content -Raw $cli | ConvertFrom-Json
+            Write-Host ($data | ConvertTo-Json -Depth 5)
+            $ours = @($data.plugins | Where-Object { $_ -is [string] -and $_ -like "*od" })
+            if ($ours.Count -ne 1) { throw "$exe expected one opendeck entry, got $($ours.Count)" }
+            if (-not ($data.plugins -contains "some-other-plugin")) { throw "$exe dropped another plugin" }
+            if ($data.theme -ne "x") { throw "$exe dropped another key" }
+            if (-not (Test-Path (Join-Path $ours[0] "tui.js"))) { throw "$exe registered path has no tui.js: $($ours[0])" }
+            if (-not (Test-Path (Join-Path $ours[0] "dist\index.js"))) { throw "$exe install has no dist/index.js" }
+            & $exe -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $dir -Uninstall -Yes
+            if ($LASTEXITCODE) { throw "$exe uninstall failed" }
+            $data = Get-Content -Raw $cli | ConvertFrom-Json
+            if (@($data.plugins | Where-Object { $_ -like "*od" }).Count -ne 0) { throw "$exe uninstall left the entry" }
+            if (Test-Path $dir) { throw "$exe uninstall left $dir" }
+            Write-Host "$exe OK"
+          }
+
+      - name: install.ps1 via 'irm | iex' style (script block, default params)
+        if: matrix.os == 'windows-latest' && github.event_name == 'push'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:RUNNER_TEMP "od-iex"
+          $env:XDG_CONFIG_HOME = "$root\cfg"
+          $env:LOCALAPPDATA = "$root\appdata"
+          New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA | Out-Null
+          # same as `irm <raw url> | iex`, but with this commit's script
+          Get-Content -Raw install.ps1 | Invoke-Expression
+          $cli = "$root\cfg\opencode\cli.json"
+          $data = Get-Content -Raw $cli | ConvertFrom-Json
+          Write-Host ($data | ConvertTo-Json -Depth 5)
+          $p = @($data.plugins)[0]
+          if (-not (Test-Path (Join-Path $p "tui.js"))) { throw "iex install did not register a valid dir: $p" }
+          Write-Host "iex OK"
+
       - name: install.ps1 parses
         if: matrix.os == 'windows-latest'
         shell: pwsh
