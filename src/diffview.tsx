@@ -76,8 +76,21 @@ export function DiffView(props: { deck: Deck; sessionID?: string; file?: string 
     if (!id) return []
     return diffFromTools(collectToolParts(context, deck.familyIds(id)))
   })
-  // Paths any agent in this session family edited (edit/write tool metadata).
-  const agentPaths = createMemo(() => new Set(local().map((file) => file.file)))
+  // Paths any agent in this session family edited: edit metadata plus the
+  // filePath/path input of every completed write-family call (write has no
+  // metadata.files, so it would otherwise be marked as a manual change).
+  const agentPaths = createMemo(() => {
+    const paths = new Set(local().map((file) => file.file))
+    const id = props.sessionID
+    if (!id) return paths
+    for (const { part } of collectToolParts(context, deck.familyIds(id))) {
+      if (part.state.status !== "completed" || !/edit|write|patch/i.test(part.name)) continue
+      const input = part.state.input as Record<string, unknown> | undefined
+      const path = input?.filePath ?? input?.path
+      if (typeof path === "string" && path !== "") paths.add(path)
+    }
+    return paths
+  })
   const useLocal = createMemo(() => local().length > 0)
   const [files] = createResource(
     () => props.sessionID,

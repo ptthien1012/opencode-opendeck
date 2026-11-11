@@ -821,6 +821,10 @@ export function FullView(props: { deck: Deck; sessionID?: string }) {
   const H = createMemo(() => context.renderer.terminalHeight ?? 40)
   // Width inside the scrollbox: its vertical scrollbar takes one column.
   const CW = createMemo(() => Math.max(46, W() - 1))
+  // Plugin routes do not bound "100%" heights, so the scroll pane gets an
+  // explicit height like the other pages: terminal minus the title block
+  // (2 rows + rule + gap) and the wrapped key-hint footer (up to 2 rows).
+  const bodyH = createMemo(() => Math.max(5, H() - 6))
 
   // Scrollable tab content: mouse wheel scrolls natively, keymap requests via
   // the deck's seq channel, and the selected agent row is kept in view.
@@ -882,7 +886,8 @@ export function FullView(props: { deck: Deck; sessionID?: string }) {
                 scrollRef = r
               }}
               scrollY
-              flexGrow={1}
+              height={bodyH()}
+              flexShrink={0}
               width={W()}
             >
               <box flexDirection="column" width="100%">
